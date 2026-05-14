@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- App Icon + PWA -->
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lumen">
+<title>A decision summary — Lumen</title>
+<meta property="og:title" content="A decision clarity summary — Lumen">
+<meta property="og:description" content="Someone shared their thinking with you.">
+<meta property="og:image" content="https://uselumen.com/og.png">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --navy: #080e1a;
+  --card: #0f1c2e;
+  --amber: #e8a44a;
+  --amber-dim: rgba(232,164,74,0.1);
+  --amber-border: rgba(232,164,74,0.22);
+  --cream: #ede8df;
+  --muted: #5e7285;
+  --border: rgba(255,255,255,0.07);
+}
+html, body { min-height: 100%; font-family: 'DM Sans', sans-serif; background: var(--navy); color: var(--cream); }
+.bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 20% 0%, rgba(232,164,74,0.07), transparent 60%),
+    radial-gradient(ellipse 60% 60% at 80% 100%, rgba(20,50,90,0.5), transparent 60%);
+}
+.page { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; }
+
+/* NAV */
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; background: rgba(8,14,26,0.8); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }
+.nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 22px; font-weight: 300; color: var(--amber); text-decoration: none; }
+.nav-logo em { color: var(--cream); font-style: italic; }
+.nav-cta { background: var(--amber); color: var(--navy); padding: 8px 20px; border-radius: 100px; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.2s; }
+.nav-cta:hover { background: #f5c97a; }
+
+/* CONTENT */
+.share-wrap { width: 100%; max-width: 600px; margin-top: 60px; animation: fadeUp 0.6s ease both; }
+
+.share-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--amber-dim); border: 1px solid var(--amber-border);
+  color: var(--amber); font-size: 12px; padding: 5px 14px;
+  border-radius: 100px; margin-bottom: 24px;
+  letter-spacing: 0.06em;
+}
+
+.share-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
+
+.share-decision {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px; color: #b0a898;
+  line-height: 1.7; margin-bottom: 28px;
+  padding: 20px 24px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.summary-card {
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+  border-radius: 20px;
+  padding: 32px;
+  margin-bottom: 28px;
+}
+
+.summary-heading { font-size: 12px; color: var(--amber); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 14px; }
+
+.summary-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-style: italic;
+  line-height: 1.6; color: var(--cream);
+}
+
+.meta-row {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 32px; align-items: center;
+}
+
+.meta-badge {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  padding: 5px 14px; border-radius: 100px;
+  font-size: 12px; color: var(--muted);
+}
+
+.cta-section { text-align: center; padding: 32px 0; }
+.cta-text { font-family: 'Cormorant Garamond', serif; font-size: 22px; font-weight: 300; margin-bottom: 8px; }
+.cta-sub { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+.btn-cta { display: inline-block; background: var(--amber); color: var(--navy); padding: 14px 32px; border-radius: 100px; font-size: 15px; font-weight: 600; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 20px rgba(232,164,74,0.2); }
+.btn-cta:hover { background: #f5c97a; transform: translateY(-2px); }
+
+.actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+.btn-copy { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 10px 20px; border-radius: 100px; font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+.btn-copy:hover { border-color: var(--amber); color: var(--amber); }
+
+/* LOADING / ERROR */
+.loading { text-align: center; padding: 80px 20px; }
+.loading-spinner { width: 32px; height: 32px; border: 2px solid rgba(232,164,74,0.2); border-top-color: var(--amber); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); }
+.error-text { font-family: 'Cormorant Garamond', serif; font-size: 24px; color: var(--muted); margin-bottom: 8px; }
+
+/* DIVIDER */
+.divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 600px) {
+  .summary-text { font-size: 18px; }
+  .share-wrap { margin-top: 80px; }
+}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+
+<nav>
+  <a href="index.html" class="nav-logo">Lumen<em>.</em></a>
+  <a href="login.html" class="nav-cta">Try Lumen free →</a>
+</nav>
+
+<div class="page">
+  <div class="share-wrap">
+    <div id="content">
+      <div class="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading summary...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FW_LABELS = { 'pros-cons':'Pros & Cons', '10-10-10':'10/10/10 Rule', 'values':'Values Alignment', 'worst-case':'Worst-Case Analysis' };
+const EM_EMOJI  = { anxious:'😰', confused:'😕', overwhelmed:'😤', excited:'🤩', scared:'😨', calm:'😌' };
+
+async function loadShare() {
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (!id) return showError('No share link found.');
+
+  try {
+    const res = await fetch(`/api/share?id=${id}`);
+    if (res.status === 404) return showError('This summary has expired or was removed.');
+    if (!res.ok) return showError('Could not load this summary.');
+    const data = await res.json();
+    renderShare(data);
+  } catch (e) {
+    showError('Something went wrong. Please try again.');
+  }
+}
+
+function renderShare(d) {
+  const fw = FW_LABELS[d.framework] || d.framework || '';
+  const em = d.emotion ? `${EM_EMOJI[d.emotion]||''} ${d.emotion}` : '';
+  const date = d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) : '';
+
+  document.title = `${d.sharedBy}'s decision summary — Lumen`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="share-badge">✦ Shared by ${d.sharedBy}</div>
+
+    <div class="share-label">The decision</div>
+    <div class="share-decision">I was deciding whether to ${d.decision}</div>
+
+    <div class="summary-card">
+      <div class="summary-heading">✦ Clarity Summary</div>
+      <div class="summary-text">${d.summary}</div>
+    </div>
+
+    <div class="meta-row">
+      ${fw ? `<span class="meta-badge">🧭 ${fw}</span>` : ''}
+      ${em ? `<span class="meta-badge">${em}</span>` : ''}
+      ${date ? `<span class="meta-badge">📅 ${date}</span>` : ''}
+    </div>
+
+    <div class="actions">
+      <button class="btn-copy" onclick="copyLink()">🔗 Copy link</button>
+      <button class="btn-copy" onclick="shareNative('${d.sharedBy}', '${d.summary?.substring(0,100).replace(/'/g,"\\'")}')">📤 Share</button>
+    </div>
+
+    <hr class="divider">
+
+    <div class="cta-section">
+      <div class="cta-text">Think through your own decisions</div>
+      <div class="cta-sub">Lumen helps you find clarity — free, judgment-free, always yours.</div>
+      <a href="login.html" class="btn-cta">Start for free →</a>
+    </div>
+  `;
+}
+
+function showError(msg) {
+  document.getElementById('content').innerHTML = `
+    <div style="text-align:center; padding:60px 0;">
+      <div style="font-size:48px; margin-bottom:16px; opacity:0.4">🔍</div>
+      <div class="error-text">${msg}</div>
+      <a href="login.html" class="btn-cta" style="margin-top:24px; display:inline-block;">Go to Lumen →</a>
+    </div>`;
+}
+
+function copyLink() {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = '🔗 Copy link', 2000);
+  });
+}
+
+function shareNative(name, summary) {
+  if (navigator.share) {
+    navigator.share({ title: `${name}'s decision summary`, text: summary, url: window.location.href });
+  } else { copyLink(); }
+}
+
+loadShare();
+</script>
+</body>
+</html>

@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- App Icon + PWA -->
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lumen">
+<title>Lumen — My Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import {
+    getAuth, onAuthStateChanged, signOut,
+    updateProfile, updatePassword, updateEmail,
+    EmailAuthProvider, reauthenticateWithCredential, deleteUser
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import {
+    getFirestore, collection, getDocs, query,
+    where, orderBy, deleteDoc, doc, getCountFromServer
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────
+  const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  onAuthStateChanged(auth, async user => {
+    if (!user) { window.location.href = 'login.html'; return; }
+    window._user = user;
+    window._auth = auth;
+    window._db = db;
+    window._fbFns = { signOut, updateProfile, updatePassword, updateEmail, EmailAuthProvider, reauthenticateWithCredential, deleteUser, collection, getDocs, query, where, orderBy, deleteDoc, doc, getCountFromServer };
+    await initProfile(user);
+  });
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #080e1a;
+  --surface: #0f1c2e;
+  --surface2: #162437;
+  --amber: #e8a44a;
+  --amber-dim: rgba(232,164,74,0.12);
+  --amber-border: rgba(232,164,74,0.25);
+  --cream: #ede8df;
+  --cream-dim: #b8b0a0;
+  --muted: #5e7285;
+  --border: rgba(255,255,255,0.06);
+  --border2: rgba(255,255,255,0.1);
+  --danger: #e85a4a;
+  --danger-dim: rgba(232,90,74,0.1);
+  --success: #4ae89a;
+  --success-dim: rgba(74,232,154,0.1);
+}
+
+html, body {
+  min-height: 100%;
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--cream);
+  overflow-x: hidden;
+}
+
+/* ── BACKGROUND ─────────────────────────────────────────── */
+.bg-layer {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 80% 0%, rgba(232,164,74,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(20,45,80,0.5) 0%, transparent 60%);
+}
+
+/* ── NAV ─────────────────────────────────────────────────── */
+nav {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(8,14,26,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.nav-logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-weight: 300;
+  color: var(--amber); text-decoration: none;
+}
+
+.nav-logo em { color: var(--cream); font-style: italic; }
+
+.nav-right { display: flex; gap: 8px; align-items: center; }
+
+.nav-link {
+  color: var(--muted); font-size: 13px; text-decoration: none;
+  padding: 6px 14px; border-radius: 8px; transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.nav-link:hover { color: var(--cream); border-color: var(--border); }
+.nav-link.active { color: var(--amber); border-color: var(--amber-border); background: var(--amber-dim); }
+
+/* ── PAGE ────────────────────────────────────────────────── */
+.page {
+  position: relative; z-index: 1;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 32px 80px;
+}
+
+/* ── PAGE HEADER ─────────────────────────────────────────── */
+.page-header {
+  display: flex; align-items: center; gap: 24px;
+  margin-bottom: 48px;
+  animation: fadeUp 0.5s ease both;
+}
+
+.avatar-ring {
+  position: relative; flex-shrink: 0;
+}
+
+.avatar-big {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  background: var(--amber-dim);
+  border: 2px solid var(--amber-border);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 36px; font-weight: 400;
+  color: var(--amber);
+}
+
+.avatar-edit {
+  position: absolute; bottom: 0; right: 0;
+  width: 26px; height: 26px;
+  background: var(--amber);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; cursor: pointer;
+  border: 2px solid var(--bg);
+  transition: transform 0.2s;
+}
+
+.avatar-edit:hover { transform: scale(1.1); }
+
+.header-info { flex: 1; }
+
+.profile-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 36px; font-weight: 300;
+  line-height: 1.1; margin-bottom: 4px;
+}
+
+.profile-email { font-size: 14px; color: var(--muted); }
+
+.profile-joined { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.header-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+  color: var(--amber);
+  font-size: 12px; padding: 5px 14px;
+  border-radius: 100px;
+  margin-top: 8px;
+}
+
+.header-badge .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+
+/* ── SECTIONS ────────────────────────────────────────────── */
+.sections { display: flex; flex-direction: column; gap: 28px; }
+
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  animation: fadeUp 0.5s ease both;
+}
+
+.section:nth-child(2) { animation-delay: 0.05s; }
+.section:nth-child(3) { animation-delay: 0.1s; }
+.section:nth-child(4) { animation-delay: 0.15s; }
+.section:nth-child(5) { animation-delay: 0.2s; }
+
+.section-header {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.section-title {
+  font-size: 14px; font-weight: 500;
+  display: flex; align-items: center; gap: 10px;
+}
+
+.section-icon { font-size: 16px; }
+
+.section-body { padding: 28px; }
+
+/* ── FORM FIELDS ─────────────────────────────────────────── */
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 600px) { .field-row { grid-template-columns: 1fr; } }
+
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field.full { grid-column: 1 / -1; }
+
+.field-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--muted);
+}
+
+.field-input {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; color: var(--cream);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.field-input:focus {
+  border-color: var(--amber-border);
+  box-shadow: 0 0 0 3px rgba(232,164,74,0.05);
+}
+
+.field-input::placeholder { color: var(--muted); font-style: italic; }
+.field-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.field-hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+/* ── BUTTONS ─────────────────────────────────────────────── */
+.btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+.btn {
+  padding: 10px 22px;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; gap: 6px;
+}
+
+.btn-primary { background: var(--amber); color: var(--bg); border: none; }
+.btn-primary:hover { background: #f0b860; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--cream-dim);
+}
+.btn-ghost:hover { border-color: var(--muted); color: var(--cream); }
+
+.btn-danger {
+  background: var(--danger-dim);
+  border: 1px solid rgba(232,90,74,0.2);
+  color: var(--danger);
+}
+.btn-danger:hover { background: rgba(232,90,74,0.18); }
+
+/* ── STATS ROW ───────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 600px) { .stats-row { grid-template-columns: 1fr; } }
+
+.stat-tile {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 40px; font-weight: 400;
+  color: var(--amber); line-height: 1;
+  margin-bottom: 6px;
+}
+
+.stat-lbl { font-size: 12px; color: var(--muted); }
+
+/* ── DANGER ZONE ─────────────────────────────────────────── */
+.danger-section { border-color: rgba(232,90,74,0.15); }
+
+.danger-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.danger-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+.danger-info .danger-title { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+.danger-info .danger-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* ── TOAST ───────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 32px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 12px 24px;
+  font-size: 14px;
+  z-index: 200;
+  transition: transform 0.3s ease;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  white-space: nowrap;
+}
+
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: rgba(74,232,154,0.3); color: var(--success); }
+.toast.error { border-color: rgba(232,90,74,0.3); color: var(--danger); }
+
+/* ── MODAL ───────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(8,14,26,0.85);
+  backdrop-filter: blur(8px);
+  display: none;
+  align-items: center; justify-content: center; padding: 20px;
+}
+
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 36px;
+  width: 100%; max-width: 400px;
+  animation: fadeUp 0.3s ease both;
+}
+
+.modal-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px; font-weight: 400;
+  margin-bottom: 8px;
+}
+
+.modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+
+/* ── ANIMATIONS ──────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 700px) {
+  nav { padding: 0 16px; }
+  nav .nav-right { display: none; }
+  .page { padding: 24px 14px 100px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .section-body { padding: 18px 16px; }
+  .field-row { grid-template-columns: 1fr !important; }
+  .stats-row { grid-template-columns: 1fr 1fr !important; }
+  .btn-row { flex-wrap: wrap; }
+  .danger-item { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .modal { padding: 24px 20px; }
+}
+
+#mobile-profile-nav {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 80;
+  background: rgba(8,14,26,0.97);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+
+@media (max-width: 700px) { #mobile-profile-nav { display: flex !important; } }
+
+.pmob { display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; cursor:pointer; color:var(--muted); font-family:'DM Sans',sans-serif; padding:6px 10px; text-decoration:none; min-width:52px; }
+.pmob span:first-child { font-size:20px; }
+.pmob span:last-child { font-size:10px; }
+.pmob.active { color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="bg-layer"></div>
+
+<!-- NAV -->
+<nav>
+  <a href="app.html" class="nav-logo">Lumen<em>.</em></a>
+  <div class="nav-right">
+    <a href="app.html" class="nav-link">Home</a>
+    <a href="dashboard.html" class="nav-link">Dashboard</a>
+    <a href="profile.html" class="nav-link active">Profile</a>
+    <a href="#" class="nav-link" onclick="handleSignOut()">Sign out</a>
+  </div>
+</nav>
+
+<!-- PAGE -->
+<div class="page" id="page" style="display:none">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="avatar-ring">
+      <div class="avatar-big" id="avatar-big">?</div>
+      <div class="avatar-edit" title="Edit avatar">✎</div>
+    </div>
+    <div class="header-info">
+      <div class="profile-name" id="profile-name">Loading...</div>
+      <div class="profile-email" id="profile-email"></div>
+      <div class="profile-joined" id="profile-joined"></div>
+      <div class="header-badge"><span class="dot"></span> Free Plan</div>
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- ACCOUNT STATS -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title"><span class="section-icon">📊</span> My Activity</div>
+      </div>
+      <div class="section-body">
+        <div class="stats-row">
+          <div class="stat-tile">
+            <div class="stat-num" id="stat-total">—</div>
+            <div class="stat-lbl">Total decisions</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-num" id="stat-framework">—</div>
+            <div class="stat-lbl">Favourite framework</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-num" id="stat-emotion">—</div>
+            <div class="stat-lbl">Most common emotion</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PERSONAL INFO -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title"><span class="section-icon">👤</span> Personal Information</div>
+      </div>
+      <div class="section-body">
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Display Name</label>
+            <input class="field-input" type="text" id="edit-name" placeholder="Your name">
+          </div>
+          <div class="field">
+            <label class="field-label">Email Address</label>
+            <input class="field-input" type="email" id="edit-email" placeholder="you@example.com">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field full">
+            <label class="field-label">Bio (optional)</label>
+            <input class="field-input" type="text" id="edit-bio" placeholder="A sentence about yourself...">
+            <span class="field-hint">This is only visible to you.</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="resetProfileForm()">Discard</button>
+          <button class="btn btn-primary" id="save-profile-btn" onclick="saveProfile()">Save Changes</button>
+        </div>
+        <div id="profile-msg" style="margin-top:12px; font-size:13px; display:none"></div>
+      </div>
+    </div>
+
+    <!-- CHANGE PASSWORD -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title"><span class="section-icon">🔒</span> Password</div>
+      </div>
+      <div class="section-body">
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Current Password</label>
+            <input class="field-input" type="password" id="current-password" placeholder="••••••••">
+          </div>
+          <div class="field">
+            <label class="field-label">New Password</label>
+            <input class="field-input" type="password" id="new-password" placeholder="At least 6 characters">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="changePassword()">Update Password</button>
+        </div>
+        <div id="password-msg" style="margin-top:12px; font-size:13px; display:none"></div>
+      </div>
+    </div>
+
+    <!-- PREFERENCES -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title"><span class="section-icon">⚙️</span> Preferences</div>
+      </div>
+      <div class="section-body">
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label">Default Framework</label>
+            <select class="field-input" id="pref-framework">
+              <option value="">No preference</option>
+              <option value="pros-cons">Pros & Cons</option>
+              <option value="10-10-10">10 / 10 / 10 Rule</option>
+              <option value="values">Values Alignment</option>
+              <option value="worst-case">Worst-Case Analysis</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Notification Reminders</label>
+            <select class="field-input" id="pref-reminders">
+              <option value="off">Off</option>
+              <option value="weekly">Weekly check-in</option>
+              <option value="monthly">Monthly reflection</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="savePreferences()">Save Preferences</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DANGER ZONE -->
+    <div class="section danger-section">
+      <div class="section-header">
+        <div class="section-title"><span class="section-icon">⚠️</span> Danger Zone</div>
+      </div>
+      <div class="section-body">
+        <div class="danger-item">
+          <div class="danger-info">
+            <div class="danger-title">Export my data</div>
+            <div class="danger-desc">Download all your decisions and summaries as a JSON file.</div>
+          </div>
+          <button class="btn btn-ghost" onclick="exportData()">Export</button>
+        </div>
+        <div class="danger-item">
+          <div class="danger-info">
+            <div class="danger-title">Delete all decisions</div>
+            <div class="danger-desc">Permanently delete all saved decisions. This cannot be undone.</div>
+          </div>
+          <button class="btn btn-danger" onclick="openModal('modal-clear')">Clear All</button>
+        </div>
+        <div class="danger-item">
+          <div class="danger-info">
+            <div class="danger-title">Delete account</div>
+            <div class="danger-desc">Permanently delete your account and all associated data.</div>
+          </div>
+          <button class="btn btn-danger" onclick="openModal('modal-delete')">Delete Account</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL: Clear decisions -->
+<div class="modal-overlay" id="modal-clear">
+  <div class="modal">
+    <div class="modal-title">Clear all decisions?</div>
+    <div class="modal-sub">This will permanently delete all your saved decisions and summaries. This action cannot be undone.</div>
+    <div class="field" style="margin-bottom:20px">
+      <label class="field-label">Enter your password to confirm</label>
+      <input class="field-input" type="password" id="confirm-clear-pass" placeholder="••••••••">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-clear')">Cancel</button>
+      <button class="btn btn-danger" onclick="clearAllDecisions()">Yes, delete all</button>
+    </div>
+    <div id="clear-msg" style="margin-top:12px; font-size:13px; display:none"></div>
+  </div>
+</div>
+
+<!-- MODAL: Delete account -->
+<div class="modal-overlay" id="modal-delete">
+  <div class="modal">
+    <div class="modal-title">Delete your account?</div>
+    <div class="modal-sub">This will permanently delete your account, all decisions, and all data. There is no going back.</div>
+    <div class="field" style="margin-bottom:20px">
+      <label class="field-label">Enter your password to confirm</label>
+      <input class="field-input" type="password" id="confirm-delete-pass" placeholder="••••••••">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-delete')">Cancel</button>
+      <button class="btn btn-danger" onclick="deleteAccount()">Delete forever</button>
+    </div>
+    <div id="delete-msg" style="margin-top:12px; font-size:13px; display:none"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── INIT ──────────────────────────────────────────────────
+async function initProfile(user) {
+  document.getElementById('page').style.display = 'block';
+
+  // Avatar & name
+  const initial = (user.displayName || user.email)[0].toUpperCase();
+  document.getElementById('avatar-big').textContent = initial;
+  document.getElementById('profile-name').textContent = user.displayName || 'Anonymous';
+  document.getElementById('profile-email').textContent = user.email;
+
+  const created = user.metadata?.creationTime
+    ? `Joined ${new Date(user.metadata.creationTime).toLocaleDateString('en-GB', { month:'long', year:'numeric' })}`
+    : '';
+  document.getElementById('profile-joined').textContent = created;
+
+  // Pre-fill form
+  document.getElementById('edit-name').value = user.displayName || '';
+  document.getElementById('edit-email').value = user.email || '';
+
+  // Load preferences from localStorage
+  const prefs = JSON.parse(localStorage.getItem('lumen_prefs') || '{}');
+  if (prefs.framework) document.getElementById('pref-framework').value = prefs.framework;
+  if (prefs.reminders) document.getElementById('pref-reminders').value = prefs.reminders;
+  if (prefs.bio) document.getElementById('edit-bio').value = prefs.bio;
+
+  // Load stats
+  await loadStats(user);
+}
+
+async function loadStats(user) {
+  const { collection, getDocs, query, where } = window._fbFns;
+  try {
+    const q = query(collection(window._db, 'decisions'), where('uid', '==', user.uid));
+    const snap = await getDocs(q);
+    const docs = snap.docs.map(d => d.data());
+
+    document.getElementById('stat-total').textContent = docs.length || '0';
+
+    if (docs.length) {
+      // Favourite framework
+      const fwCount = {};
+      docs.forEach(d => { fwCount[d.framework] = (fwCount[d.framework] || 0) + 1; });
+      const topFw = Object.entries(fwCount).sort((a,b) => b[1]-a[1])[0]?.[0] || '—';
+      const fwLabels = { 'pros-cons':'Pros/Cons', '10-10-10':'10/10/10', 'values':'Values', 'worst-case':'Worst-Case' };
+      document.getElementById('stat-framework').textContent = fwLabels[topFw] || topFw;
+
+      // Most common emotion
+      const emCount = {};
+      docs.forEach(d => { if(d.emotion) emCount[d.emotion] = (emCount[d.emotion] || 0) + 1; });
+      const topEm = Object.entries(emCount).sort((a,b) => b[1]-a[1])[0]?.[0] || '—';
+      const emojis = { anxious:'😰', confused:'😕', overwhelmed:'😤', excited:'🤩', scared:'😨', calm:'😌' };
+      document.getElementById('stat-emotion').textContent = emojis[topEm] ? `${emojis[topEm]} ${topEm}` : topEm;
+    } else {
+      document.getElementById('stat-framework').textContent = '—';
+      document.getElementById('stat-emotion').textContent = '—';
+    }
+  } catch(e) { console.warn('Stats error', e); }
+}
+
+// ── PROFILE UPDATE ────────────────────────────────────────
+async function saveProfile() {
+  const name  = document.getElementById('edit-name').value.trim();
+  const email = document.getElementById('edit-email').value.trim();
+  const bio   = document.getElementById('edit-bio').value.trim();
+
+  if (!name) return showMsg('profile-msg', 'Name cannot be empty.', 'error');
+
+  const btn = document.getElementById('save-profile-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+
+  try {
+    const { updateProfile, updateEmail } = window._fbFns;
+    await updateProfile(window._user, { displayName: name });
+    if (email !== window._user.email) await updateEmail(window._user, email);
+
+    // Save bio to localStorage
+    const prefs = JSON.parse(localStorage.getItem('lumen_prefs') || '{}');
+    localStorage.setItem('lumen_prefs', JSON.stringify({ ...prefs, bio }));
+
+    document.getElementById('profile-name').textContent = name;
+    document.getElementById('avatar-big').textContent = name[0].toUpperCase();
+    showToast('✅ Profile updated', 'success');
+    hideMsg('profile-msg');
+  } catch(e) {
+    showMsg('profile-msg', friendlyError(e.code), 'error');
+  }
+
+  btn.disabled = false; btn.textContent = 'Save Changes';
+}
+
+function resetProfileForm() {
+  const user = window._user;
+  document.getElementById('edit-name').value = user.displayName || '';
+  document.getElementById('edit-email').value = user.email || '';
+  hideMsg('profile-msg');
+}
+
+// ── PASSWORD ──────────────────────────────────────────────
+async function changePassword() {
+  const current = document.getElementById('current-password').value;
+  const next    = document.getElementById('new-password').value;
+  if (!current || !next) return showMsg('password-msg', 'Please fill in both fields.', 'error');
+  if (next.length < 6)    return showMsg('password-msg', 'New password must be at least 6 characters.', 'error');
+
+  try {
+    const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = window._fbFns;
+    const cred = EmailAuthProvider.credential(window._user.email, current);
+    await reauthenticateWithCredential(window._user, cred);
+    await updatePassword(window._user, next);
+    document.getElementById('current-password').value = '';
+    document.getElementById('new-password').value = '';
+    showToast('🔒 Password updated', 'success');
+    hideMsg('password-msg');
+  } catch(e) {
+    showMsg('password-msg', friendlyError(e.code), 'error');
+  }
+}
+
+// ── PREFERENCES ───────────────────────────────────────────
+function savePreferences() {
+  const prefs = JSON.parse(localStorage.getItem('lumen_prefs') || '{}');
+  prefs.framework = document.getElementById('pref-framework').value;
+  prefs.reminders = document.getElementById('pref-reminders').value;
+  localStorage.setItem('lumen_prefs', JSON.stringify(prefs));
+  showToast('⚙️ Preferences saved', 'success');
+}
+
+// ── EXPORT ────────────────────────────────────────────────
+async function exportData() {
+  const { collection, getDocs, query, where } = window._fbFns;
+  try {
+    const q = query(collection(window._db, 'decisions'), where('uid', '==', window._user.uid));
+    const snap = await getDocs(q);
+    const data = snap.docs.map(d => {
+      const d2 = d.data();
+      return { decision: d2.decision, emotion: d2.emotion, framework: d2.framework, summary: d2.summary, date: d2.createdAt?.toDate?.()?.toISOString() };
+    });
+    const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), user: window._user.email, decisions: data }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'lumen-decisions.json'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('📦 Data exported', 'success');
+  } catch(e) { showToast('Export failed. Try again.', 'error'); }
+}
+
+// ── CLEAR ALL ─────────────────────────────────────────────
+async function clearAllDecisions() {
+  const pass = document.getElementById('confirm-clear-pass').value;
+  if (!pass) return showMsg('clear-msg', 'Please enter your password.', 'error');
+
+  try {
+    const { EmailAuthProvider, reauthenticateWithCredential, collection, getDocs, query, where, deleteDoc, doc } = window._fbFns;
+    const cred = EmailAuthProvider.credential(window._user.email, pass);
+    await reauthenticateWithCredential(window._user, cred);
+    const q = query(collection(window._db, 'decisions'), where('uid', '==', window._user.uid));
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(window._db, 'decisions', d.id))));
+    closeModal('modal-clear');
+    await loadStats(window._user);
+    showToast('🗑️ All decisions deleted', 'success');
+  } catch(e) {
+    showMsg('clear-msg', friendlyError(e.code), 'error');
+  }
+}
+
+// ── DELETE ACCOUNT ────────────────────────────────────────
+async function deleteAccount() {
+  const pass = document.getElementById('confirm-delete-pass').value;
+  if (!pass) return showMsg('delete-msg', 'Please enter your password.', 'error');
+
+  try {
+    const { EmailAuthProvider, reauthenticateWithCredential, deleteUser, collection, getDocs, query, where, deleteDoc, doc } = window._fbFns;
+    const cred = EmailAuthProvider.credential(window._user.email, pass);
+    await reauthenticateWithCredential(window._user, cred);
+
+    // Delete all decisions first
+    const q = query(collection(window._db, 'decisions'), where('uid', '==', window._user.uid));
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(window._db, 'decisions', d.id))));
+
+    // Delete the user
+    await deleteUser(window._user);
+    window.location.href = 'login.html';
+  } catch(e) {
+    showMsg('delete-msg', friendlyError(e.code), 'error');
+  }
+}
+
+// ── SIGN OUT ──────────────────────────────────────────────
+async function handleSignOut() {
+  const { signOut } = window._fbFns;
+  await signOut(window._auth);
+  window.location.href = 'login.html';
+}
+
+// ── HELPERS ───────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+let toastTimer;
+function showToast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function showMsg(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.color = type === 'error' ? 'var(--danger)' : 'var(--success)';
+  el.style.display = 'block';
+}
+
+function hideMsg(id) { document.getElementById(id).style.display = 'none'; }
+
+function friendlyError(code) {
+  const map = {
+    'auth/wrong-password': 'Incorrect password.',
+    'auth/weak-password': 'New password is too weak.',
+    'auth/email-already-in-use': 'That email is already in use.',
+    'auth/requires-recent-login': 'Please sign out and sign back in first.',
+    'auth/invalid-credential': 'Incorrect password.',
+    'auth/too-many-requests': 'Too many attempts. Please wait.'
+  };
+  return map[code] || 'Something went wrong. Please try again.';
+}
+</script>
+
+<div id="mobile-profile-nav">
+  <a class="pmob" href="app.html"><span>🏠</span><span>Home</span></a>
+  <a class="pmob" href="app.html"><span>📋</span><span>Decisions</span></a>
+  <a class="pmob" href="dashboard.html"><span>📊</span><span>Insights</span></a>
+  <a class="pmob active" href="profile.html"><span>👤</span><span>Profile</span></a>
+</div>
+
+</body>
+</html>

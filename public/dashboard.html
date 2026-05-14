@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- App Icon + PWA -->
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lumen">
+<title>Lumen — My Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import { getFirestore, collection, getDocs, query, where, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────
+  const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  onAuthStateChanged(auth, async user => {
+    if (!user) { window.location.href = 'login.html'; return; }
+    window._user = user;
+    window._auth = auth;
+    window._signOut = signOut;
+    const q = query(collection(db, 'decisions'), where('uid', '==', user.uid), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    const decisions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    window._decisions = decisions;
+    initDashboard(user, decisions);
+  });
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #07111f;
+  --s1: #0d1b2e;
+  --s2: #132338;
+  --amber: #e8a44a;
+  --amber-dim: rgba(232,164,74,0.1);
+  --amber-border: rgba(232,164,74,0.22);
+  --amber-bright: #f5c97a;
+  --cream: #ede8df;
+  --cream-dim: #b0a898;
+  --muted: #556070;
+  --border: rgba(255,255,255,0.055);
+  --border2: rgba(255,255,255,0.09);
+
+  /* Emotion colors */
+  --c-anxious:    #e87a4a;
+  --c-confused:   #a47ae8;
+  --c-overwhelmed:#e84a7a;
+  --c-excited:    #4ae8a4;
+  --c-scared:     #4a8ae8;
+  --c-calm:       #4ae8e8;
+}
+
+html, body {
+  min-height: 100%;
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--cream);
+  overflow-x: hidden;
+}
+
+/* ── BG ──────────────────────────────────────────────────── */
+.bg-layer {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 50% 40% at 90% 0%, rgba(232,164,74,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 10% 100%, rgba(20,50,90,0.4) 0%, transparent 60%);
+}
+
+/* ── NAV ─────────────────────────────────────────────────── */
+nav {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(7,17,31,0.88);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px; height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.nav-logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-weight: 300;
+  color: var(--amber); text-decoration: none;
+}
+
+.nav-logo em { color: var(--cream); font-style: italic; }
+
+.nav-right { display: flex; gap: 8px; align-items: center; }
+
+.nav-link {
+  color: var(--muted); font-size: 13px; text-decoration: none;
+  padding: 6px 14px; border-radius: 8px; transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.nav-link:hover { color: var(--cream); border-color: var(--border); }
+.nav-link.active { color: var(--amber); border-color: var(--amber-border); background: var(--amber-dim); }
+
+/* ── PAGE ────────────────────────────────────────────────── */
+.page {
+  position: relative; z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 32px 80px;
+}
+
+/* ── PAGE TITLE ──────────────────────────────────────────── */
+.page-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 300;
+  margin-bottom: 6px;
+  animation: fadeUp 0.5s ease both;
+}
+
+.page-title em { font-style: italic; color: var(--amber); }
+
+.page-sub {
+  font-size: 14px; color: var(--muted);
+  margin-bottom: 40px;
+  animation: fadeUp 0.5s 0.05s ease both;
+}
+
+/* ── GRID ────────────────────────────────────────────────── */
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+  animation: fadeUp 0.5s 0.1s ease both;
+}
+
+@media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .grid-4 { grid-template-columns: 1fr 1fr; } }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 700px) { .grid-3 { grid-template-columns: 1fr; } }
+
+/* ── CARDS ───────────────────────────────────────────────── */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  animation: fadeUp 0.5s ease both;
+}
+
+.card-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--muted);
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+
+.card-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 44px; font-weight: 400;
+  color: var(--amber); line-height: 1;
+  margin-bottom: 4px;
+}
+
+.card-sub { font-size: 12px; color: var(--muted); }
+
+.card-title {
+  font-size: 14px; font-weight: 500;
+  margin-bottom: 20px;
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ── KPI CARD ────────────────────────────────────────────── */
+.kpi {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  transition: border-color 0.2s;
+}
+
+.kpi:hover { border-color: var(--amber-border); }
+
+.kpi-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.kpi-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 38px; color: var(--amber);
+  line-height: 1; margin-bottom: 4px;
+}
+
+.kpi-change {
+  font-size: 12px;
+  display: flex; align-items: center; gap: 4px;
+}
+
+.kpi-change.up { color: #4ae89a; }
+.kpi-change.neutral { color: var(--muted); }
+
+/* ── CHART CONTAINERS ────────────────────────────────────── */
+.chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+canvas {
+  display: block;
+  width: 100% !important;
+}
+
+/* ── EMOTION LEGEND ──────────────────────────────────────── */
+.emotion-legend {
+  display: flex; flex-direction: column; gap: 10px;
+  justify-content: center;
+}
+
+.legend-item {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px;
+}
+
+.legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%; flex-shrink: 0;
+}
+
+.legend-name { flex: 1; color: var(--cream-dim); }
+.legend-count { font-family: 'Cormorant Garamond', serif; font-size: 18px; color: var(--cream); }
+.legend-pct { font-size: 11px; color: var(--muted); }
+
+/* ── FRAMEWORK BARS ──────────────────────────────────────── */
+.fw-bars { display: flex; flex-direction: column; gap: 14px; }
+
+.fw-bar-item {}
+
+.fw-bar-header {
+  display: flex; justify-content: space-between;
+  font-size: 13px; margin-bottom: 6px;
+}
+
+.fw-bar-name { color: var(--cream-dim); }
+.fw-bar-count { color: var(--amber); font-family: 'Cormorant Garamond', serif; font-size: 16px; }
+
+.fw-bar-track {
+  height: 6px; background: var(--s2);
+  border-radius: 3px; overflow: hidden;
+}
+
+.fw-bar-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--amber), var(--amber-bright));
+  transition: width 1s ease;
+  width: 0;
+}
+
+/* ── TIMELINE ────────────────────────────────────────────── */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+
+.timeline-item {
+  display: flex; gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  animation: fadeUp 0.4s ease both;
+}
+
+.timeline-item:last-child { border-bottom: none; }
+
+.timeline-left {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 4px;
+  flex-shrink: 0; width: 40px;
+}
+
+.tl-emoji { font-size: 20px; }
+
+.tl-line {
+  width: 1px; flex: 1;
+  background: var(--border);
+  min-height: 20px;
+}
+
+.timeline-item:last-child .tl-line { display: none; }
+
+.timeline-right { flex: 1; padding-top: 2px; }
+
+.tl-decision {
+  font-size: 14px; color: var(--cream);
+  margin-bottom: 4px; line-height: 1.5;
+}
+
+.tl-meta {
+  display: flex; gap: 10px;
+  font-size: 11px; color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.tl-badge {
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+  color: var(--amber);
+  padding: 2px 8px; border-radius: 100px;
+  font-size: 10px;
+}
+
+.tl-summary {
+  font-size: 12px; color: var(--muted);
+  font-style: italic; margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ── AI INSIGHT ──────────────────────────────────────────── */
+.insight-card {
+  background: linear-gradient(135deg, rgba(232,164,74,0.07), rgba(232,164,74,0.02));
+  border: 1px solid var(--amber-border);
+  border-radius: 18px;
+  padding: 28px;
+  animation: fadeUp 0.5s 0.25s ease both;
+}
+
+.insight-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--amber);
+  margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+
+.insight-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px; font-style: italic;
+  line-height: 1.6; color: var(--cream);
+}
+
+.insight-loading {
+  font-size: 14px; color: var(--muted);
+  font-style: italic;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────── */
+.empty-state {
+  text-align: center; padding: 60px 20px;
+}
+
+.empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+
+.empty-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px; font-weight: 300;
+  margin-bottom: 8px;
+}
+
+.empty-sub { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+
+.btn-start {
+  background: var(--amber); color: var(--bg);
+  border: none; padding: 12px 28px;
+  border-radius: 100px; font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 500; cursor: pointer;
+  text-decoration: none; display: inline-block;
+  transition: all 0.2s;
+}
+
+.btn-start:hover { background: var(--amber-bright); transform: translateY(-2px); }
+
+/* ── ANIMATIONS ──────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 700px) {
+  nav { padding: 0 16px; }
+  nav .nav-right { display: none; }
+  .page { padding: 28px 14px 90px; }
+  .grid-4 { grid-template-columns: 1fr 1fr !important; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .kpi-value { font-size: 28px; }
+  .timeline-item { flex-direction: column; gap: 8px; }
+  .tl-line { display: none; }
+}
+
+/* Mobile bottom nav */
+#mobile-dash-nav {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 80;
+  background: rgba(7,17,31,0.97);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+
+@media (max-width: 700px) { #mobile-dash-nav { display: flex !important; } }
+
+.mob-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  font-family: 'DM Sans', sans-serif; padding: 6px 10px;
+  text-decoration: none; min-width: 52px;
+}
+.mob-btn span:first-child { font-size: 20px; }
+.mob-btn span:last-child { font-size: 10px; }
+.mob-btn.active { color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="bg-layer"></div>
+
+<!-- NAV -->
+<nav>
+  <a href="app.html" class="nav-logo">Lumen<em>.</em></a>
+  <div class="nav-right">
+    <a href="app.html" class="nav-link">Home</a>
+    <a href="dashboard.html" class="nav-link active">Dashboard</a>
+    <a href="profile.html" class="nav-link">Profile</a>
+    <a href="#" class="nav-link" onclick="handleSignOut()">Sign out</a>
+  </div>
+</nav>
+
+<!-- PAGE -->
+<div class="page" id="page" style="display:none">
+
+  <div class="page-title">Your <em>decision</em> patterns</div>
+  <div class="page-sub" id="page-sub">Loading your insights...</div>
+
+  <div id="dashboard-content"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<script>
+const EMOTION_COLORS = {
+  anxious:    '#e87a4a',
+  confused:   '#a47ae8',
+  overwhelmed:'#e84a7a',
+  excited:    '#4ae8a4',
+  scared:     '#4a8ae8',
+  calm:       '#4ae8e8'
+};
+
+const EMOTION_EMOJIS = {
+  anxious:'😰', confused:'😕', overwhelmed:'😤',
+  excited:'🤩', scared:'😨', calm:'😌'
+};
+
+const FW_LABELS = {
+  'pros-cons':'Pros & Cons', '10-10-10':'10/10/10',
+  'values':'Values Alignment', 'worst-case':'Worst-Case'
+};
+
+// ── INIT ──────────────────────────────────────────────────
+function initDashboard(user, decisions) {
+  document.getElementById('page').style.display = 'block';
+  const name = user.displayName || 'there';
+
+  if (!decisions.length) {
+    document.getElementById('page-sub').textContent = "You haven't saved any decisions yet.";
+    document.getElementById('dashboard-content').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🌱</div>
+        <div class="empty-title">Your dashboard is waiting</div>
+        <div class="empty-sub">Save your first decision to start seeing patterns.</div>
+        <a href="app.html" class="btn-start">Begin a Decision →</a>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('page-sub').textContent = `Hi ${name} — here's what your ${decisions.length} decision${decisions.length>1?'s':''} reveal about you.`;
+
+  // Compute stats
+  const stats = computeStats(decisions);
+  renderDashboard(stats, decisions);
+}
+
+function computeStats(decisions) {
+  const total = decisions.length;
+
+  // Framework counts
+  const fwCount = {};
+  decisions.forEach(d => { fwCount[d.framework] = (fwCount[d.framework]||0)+1; });
+
+  // Emotion counts
+  const emCount = {};
+  decisions.forEach(d => { if(d.emotion) emCount[d.emotion] = (emCount[d.emotion]||0)+1; });
+
+  // Decisions per month (last 6 months)
+  const monthCounts = {};
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const key = d.toLocaleDateString('en-US', { month:'short', year:'2-digit' });
+    monthCounts[key] = 0;
+  }
+  decisions.forEach(d => {
+    const date = d.createdAt?.toDate?.();
+    if (!date) return;
+    const key = date.toLocaleDateString('en-US', { month:'short', year:'2-digit' });
+    if (monthCounts[key] !== undefined) monthCounts[key]++;
+  });
+
+  // Top framework & emotion
+  const topFw = Object.entries(fwCount).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const topEm = Object.entries(emCount).sort((a,b)=>b[1]-a[1])[0]?.[0];
+
+  // Streak: decisions in the last 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30*24*60*60*1000);
+  const recent = decisions.filter(d => d.createdAt?.toDate?.() > thirtyDaysAgo).length;
+
+  return { total, fwCount, emCount, monthCounts, topFw, topEm, recent };
+}
+
+// ── RENDER ────────────────────────────────────────────────
+function renderDashboard(stats, decisions) {
+  const container = document.getElementById('dashboard-content');
+
+  container.innerHTML = `
+    <!-- KPIs -->
+    <div class="grid-4">
+      <div class="kpi">
+        <div class="kpi-label">Total Decisions</div>
+        <div class="kpi-value">${stats.total}</div>
+        <div class="kpi-change neutral">saved & reflected</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">This Month</div>
+        <div class="kpi-value">${stats.recent}</div>
+        <div class="kpi-change ${stats.recent>0?'up':'neutral'}">${stats.recent>0?'↑ active thinker':'keep going'}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Go-to Framework</div>
+        <div class="kpi-value" style="font-size:24px; line-height:1.6">${FW_LABELS[stats.topFw]||'—'}</div>
+        <div class="kpi-change neutral">most used</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Common Emotion</div>
+        <div class="kpi-value" style="font-size:32px; line-height:1.4">${stats.topEm ? EMOTION_EMOJIS[stats.topEm] : '—'}</div>
+        <div class="kpi-change neutral">${stats.topEm||'—'}</div>
+      </div>
+    </div>
+
+    <!-- Timeline chart + Emotion breakdown -->
+    <div class="grid-2" style="animation-delay:0.15s">
+      <div class="card">
+        <div class="card-title">📈 Decisions Over Time</div>
+        <div class="chart-wrap"><canvas id="chart-timeline" height="180"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">💭 Emotion Breakdown</div>
+        <div style="display:flex; gap:20px; align-items:center; flex-wrap:wrap">
+          <div style="width:140px; height:140px; flex-shrink:0">
+            <canvas id="chart-emotions"></canvas>
+          </div>
+          <div class="emotion-legend" id="emotion-legend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Framework bars + AI insight -->
+    <div class="grid-3" style="animation-delay:0.2s">
+      <div class="card">
+        <div class="card-title">🧭 Framework Usage</div>
+        <div class="fw-bars" id="fw-bars"></div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">✦ Lumen's Pattern Reading</div>
+        <div class="insight-text" id="ai-insight">
+          <span class="insight-loading">Analysing your patterns...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent decisions -->
+    <div class="card" style="animation-delay:0.25s">
+      <div class="card-title">🕐 Recent Decisions</div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  `;
+
+  // Charts
+  renderTimelineChart(stats.monthCounts);
+  renderEmotionChart(stats.emCount);
+  renderFwBars(stats.fwCount, stats.total);
+  renderTimeline(decisions.slice(0, 6));
+  generateInsight(stats, decisions);
+}
+
+// ── CHART: Timeline ───────────────────────────────────────
+function renderTimelineChart(monthCounts) {
+  const ctx = document.getElementById('chart-timeline').getContext('2d');
+  const labels = Object.keys(monthCounts);
+  const data = Object.values(monthCounts);
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#e8a44a',
+        backgroundColor: 'rgba(232,164,74,0.08)',
+        borderWidth: 2,
+        pointBackgroundColor: '#e8a44a',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#0d1b2e',
+        borderColor: 'rgba(232,164,74,0.3)',
+        borderWidth: 1,
+        titleColor: '#e8a44a',
+        bodyColor: '#ede8df',
+        padding: 12,
+        callbacks: { label: ctx => ` ${ctx.parsed.y} decision${ctx.parsed.y!==1?'s':''}` }
+      }},
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5e7285', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5e7285', font: { size: 11 }, stepSize: 1 }, min: 0 }
+      }
+    }
+  });
+}
+
+// ── CHART: Emotions donut ─────────────────────────────────
+function renderEmotionChart(emCount) {
+  if (!Object.keys(emCount).length) return;
+  const ctx = document.getElementById('chart-emotions').getContext('2d');
+  const labels = Object.keys(emCount);
+  const data = Object.values(emCount);
+  const colors = labels.map(e => EMOTION_COLORS[e] || '#e8a44a');
+  const total = data.reduce((a,b)=>a+b,0);
+
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#07111f', hoverOffset: 4 }] },
+    options: {
+      cutout: '68%',
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#0d1b2e',
+        borderColor: 'rgba(232,164,74,0.3)',
+        borderWidth: 1,
+        titleColor: '#e8a44a',
+        bodyColor: '#ede8df',
+        padding: 12,
+        callbacks: { label: ctx => ` ${ctx.parsed} decision${ctx.parsed!==1?'s':''} (${Math.round(ctx.parsed/total*100)}%)` }
+      }}
+    }
+  });
+
+  // Legend
+  const legend = document.getElementById('emotion-legend');
+  legend.innerHTML = labels.map((em, i) => `
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${colors[i]}"></div>
+      <span class="legend-name">${EMOTION_EMOJIS[em]||''} ${em}</span>
+      <span class="legend-count">${data[i]}</span>
+      <span class="legend-pct">${Math.round(data[i]/total*100)}%</span>
+    </div>
+  `).join('');
+}
+
+// ── FRAMEWORK BARS ────────────────────────────────────────
+function renderFwBars(fwCount, total) {
+  const container = document.getElementById('fw-bars');
+  const sorted = Object.entries(fwCount).sort((a,b)=>b[1]-a[1]);
+
+  if (!sorted.length) {
+    container.innerHTML = '<p style="color:var(--muted);font-size:13px">No framework data yet.</p>';
+    return;
+  }
+
+  container.innerHTML = sorted.map(([fw, count]) => `
+    <div class="fw-bar-item">
+      <div class="fw-bar-header">
+        <span class="fw-bar-name">${FW_LABELS[fw]||fw}</span>
+        <span class="fw-bar-count">${count}</span>
+      </div>
+      <div class="fw-bar-track">
+        <div class="fw-bar-fill" data-pct="${Math.round(count/total*100)}"></div>
+      </div>
+    </div>
+  `).join('');
+
+  // Animate bars after paint
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      document.querySelectorAll('.fw-bar-fill').forEach(el => {
+        el.style.width = el.dataset.pct + '%';
+      });
+    }, 100);
+  });
+}
+
+// ── TIMELINE ─────────────────────────────────────────────
+function renderTimeline(decisions) {
+  const container = document.getElementById('timeline');
+  if (!decisions.length) {
+    container.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:16px 0">No saved decisions yet.</p>';
+    return;
+  }
+
+  container.innerHTML = decisions.map((d, i) => {
+    const date = d.createdAt?.toDate?.()?.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) || 'Recently';
+    const emoji = EMOTION_EMOJIS[d.emotion] || '💭';
+    return `
+      <div class="timeline-item" style="animation-delay:${i*0.06}s">
+        <div class="timeline-left">
+          <div class="tl-emoji">${emoji}</div>
+          <div class="tl-line"></div>
+        </div>
+        <div class="timeline-right">
+          <div class="tl-decision">${d.decision?.substring(0,100)}${(d.decision?.length||0)>100?'...':''}</div>
+          <div class="tl-meta">
+            <span>${date}</span>
+            <span>${d.emotion||''}</span>
+            <span class="tl-badge">${FW_LABELS[d.framework]||d.framework||''}</span>
+          </div>
+          ${d.summary ? `<div class="tl-summary">"${d.summary.substring(0,120)}..."</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── AI INSIGHT ────────────────────────────────────────────
+async function generateInsight(stats, decisions) {
+  if (decisions.length < 2) {
+    document.getElementById('ai-insight').textContent = 'Save a few more decisions to unlock your pattern reading.';
+    return;
+  }
+
+  const summary = `
+User has made ${stats.total} decisions.
+Most used framework: ${FW_LABELS[stats.topFw]||stats.topFw}.
+Most common emotion: ${stats.topEm}.
+Framework distribution: ${Object.entries(stats.fwCount).map(([k,v])=>`${FW_LABELS[k]}: ${v}`).join(', ')}.
+Emotion distribution: ${Object.entries(stats.emCount).map(([k,v])=>`${k}: ${v}`).join(', ')}.
+Recent decisions (titles): ${decisions.slice(0,5).map(d=>d.decision?.substring(0,60)).join(' | ')}.
+  `.trim();
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: summary }],
+        system: `You are Lumen. Based on this user's decision-making data, write ONE short, warm, insightful observation about their pattern as a thinker. 2-3 sentences max. Second person ("You tend to..."). Be specific to their actual data, not generic. Do not repeat their stats back — interpret them. Finish with an encouraging line. Under 80 words.`
+      })
+    });
+    const data = await res.json();
+    document.getElementById('ai-insight').textContent = data.text || 'Your patterns are still forming — keep going.';
+  } catch(e) {
+    document.getElementById('ai-insight').textContent = 'Your patterns are still forming — keep going.';
+  }
+}
+
+// ── SIGN OUT ──────────────────────────────────────────────
+async function handleSignOut() {
+  await window._signOut(window._auth);
+  window.location.href = 'login.html';
+}
+</script>
+
+<!-- MOBILE NAV -->
+<div id="mobile-dash-nav">
+  <a class="mob-btn" href="app.html"><span>🏠</span><span>Home</span></a>
+  <a class="mob-btn" href="app.html#history"><span>📋</span><span>Decisions</span></a>
+  <a class="mob-btn active" href="dashboard.html"><span>📊</span><span>Insights</span></a>
+  <a class="mob-btn" href="profile.html"><span>👤</span><span>Profile</span></a>
+</div>
+
+</body>
+</html>

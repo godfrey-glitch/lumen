@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- App Icon + PWA -->
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lumen">
+<title>Lumen — Think clearer. Decide better.</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import {
+    getAuth, onAuthStateChanged, signOut
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import {
+    getFirestore, collection, addDoc, getDocs,
+    query, where, orderBy, serverTimestamp
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────
+  const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // ── EXPOSE TO WINDOW ─────────────────────────────────────
+  window._auth = auth;
+  window._db = db;
+  window._fbFns = {
+    signOut, collection, addDoc, getDocs,
+    query, where, orderBy, serverTimestamp
+  };
+
+  // Guard: redirect to login if not authenticated
+  onAuthStateChanged(auth, async user => {
+    if (!user) {
+      window.location.href = 'login.html';
+      return;
+    }
+    window._currentUser = user;
+    document.getElementById('main-app').style.display = 'flex';
+    document.getElementById('user-name').textContent = user.displayName || user.email.split('@')[0];
+    document.getElementById('user-avatar').textContent = (user.displayName || user.email)[0].toUpperCase();
+
+    // New feature hooks
+    setGreeting(user.displayName);
+    loadDailyPrompt();
+    checkOnboarding();
+    sendWelcomeEmail(user);
+
+    // Load decisions and feed all widgets
+    await loadCloudHistory(user);
+    updateStreak(window._allDecisions || []);
+    loadNotifications(window._allDecisions || []);
+  });
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy: #0d1b2a;
+  --navy-mid: #142236;
+  --navy-light: #1e3350;
+  --amber: #e8a44a;
+  --amber-light: #f5c97a;
+  --cream: #f5f0e8;
+  --cream-dim: #ddd5c4;
+  --muted: #7a8fa6;
+  --glass: rgba(255,255,255,0.04);
+  --border: rgba(255,255,255,0.08);
+  --error: rgba(255,80,80,0.12);
+  --error-text: #ff9090;
+  --amber-dim: rgba(232,164,74,0.08);
+}
+
+.rating-btn {
+  background: var(--glass); border: 1px solid var(--border);
+  color: var(--cream-dim); padding: 8px 14px; border-radius: 100px;
+  font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer;
+  transition: all 0.2s;
+}
+.rating-btn:hover, .rating-btn.selected {
+  border-color: var(--amber); background: rgba(232,164,74,0.1); color: var(--cream);
+}
+
+.ob-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border); display: inline-block; transition: all 0.3s;
+}
+.ob-dot.active { background: var(--amber); width: 20px; border-radius: 3px; }
+
+html, body { height: 100%; font-family: 'DM Sans', sans-serif; background: var(--navy); color: var(--cream); overflow-x: hidden; }
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(232,164,74,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(30,51,80,0.8) 0%, transparent 70%);
+  pointer-events: none; z-index: 0;
+}
+
+/* ── MAIN APP ─────────────────────────────────────────── */
+#main-app {
+  position: relative; z-index: 1;
+  min-height: 100vh;
+  flex-direction: column;
+  display: none;
+}
+
+header {
+  padding: 20px 40px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+  background: rgba(13,27,42,0.6);
+  position: sticky; top: 0; z-index: 50;
+}
+
+.logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px; font-weight: 300;
+  color: var(--amber); cursor: pointer; text-decoration: none;
+}
+
+.logo em { color: var(--cream); font-style: italic; }
+
+.header-right { display: flex; align-items: center; gap: 16px; }
+
+.user-pill {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--glass); border: 1px solid var(--border);
+  padding: 6px 16px 6px 8px; border-radius: 100px;
+}
+
+.user-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(232,164,74,0.2);
+  border: 1px solid rgba(232,164,74,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: var(--amber);
+}
+
+#user-name { font-size: 13px; color: var(--cream-dim); }
+
+.sign-out-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); padding: 7px 14px; border-radius: 100px;
+  cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px;
+  transition: all 0.2s;
+}
+
+.sign-out-btn:hover { border-color: var(--muted); color: var(--cream); }
+
+.nav-links { display: flex; gap: 8px; }
+.nav-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); padding: 7px 16px; border-radius: 100px;
+  cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px;
+  transition: all 0.2s;
+}
+.nav-btn:hover, .nav-btn.active { border-color: var(--amber); color: var(--amber); }
+
+/* ── SCREENS ──────────────────────────────────────────── */
+.screen { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; animation: fadeUp 0.4s ease both; }
+.screen.active { display: flex; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+
+.hero-title { font-family: 'Cormorant Garamond', serif; font-size: clamp(44px, 7vw, 80px); font-weight: 300; line-height: 1.05; text-align: center; max-width: 720px; margin-bottom: 20px; }
+.hero-title em { font-style: italic; color: var(--amber); }
+.hero-sub { font-size: 16px; color: var(--muted); text-align: center; max-width: 460px; line-height: 1.7; margin-bottom: 44px; font-weight: 300; }
+
+.btn-primary { background: var(--amber); color: var(--navy); border: none; padding: 15px 36px; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 500; border-radius: 100px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 24px rgba(232,164,74,0.2); }
+.btn-primary:hover { background: var(--amber-light); transform: translateY(-2px); }
+
+.features-row { display: flex; gap: 16px; margin-top: 52px; flex-wrap: wrap; justify-content: center; }
+.feature-pill { background: var(--glass); border: 1px solid var(--border); padding: 10px 18px; border-radius: 100px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.feature-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+
+.card { background: var(--glass); border: 1px solid var(--border); border-radius: 24px; padding: 36px; width: 100%; max-width: 600px; backdrop-filter: blur(20px); }
+.card-title { font-family: 'Cormorant Garamond', serif; font-size: 30px; font-weight: 400; margin-bottom: 8px; line-height: 1.2; }
+.card-sub { font-size: 14px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+
+.emotion-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 28px; }
+.emotion-btn { background: var(--glass); border: 1px solid var(--border); padding: 14px 10px; border-radius: 14px; cursor: pointer; text-align: center; font-family: 'DM Sans', sans-serif; color: var(--cream-dim); font-size: 13px; transition: all 0.2s; }
+.emotion-btn .emoji { font-size: 22px; display: block; margin-bottom: 5px; }
+.emotion-btn:hover, .emotion-btn.selected { border-color: var(--amber); background: rgba(232,164,74,0.08); color: var(--cream); }
+
+.input-group { margin-bottom: 20px; }
+.input-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 8px; display: block; }
+
+textarea {
+  width: 100%; background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 18px; font-family: 'DM Sans', sans-serif;
+  font-size: 15px; color: var(--cream); resize: none;
+  outline: none; transition: border-color 0.2s; line-height: 1.6;
+}
+
+textarea:focus { border-color: var(--amber); }
+textarea::placeholder { color: var(--muted); font-style: italic; }
+
+.framework-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+.framework-item { background: var(--glass); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; cursor: pointer; transition: all 0.2s; display: flex; align-items: flex-start; gap: 14px; }
+.framework-item:hover, .framework-item.selected { border-color: var(--amber); background: rgba(232,164,74,0.06); }
+.framework-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+.framework-name { font-weight: 500; font-size: 14px; margin-bottom: 3px; }
+.framework-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+.ai-conversation { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+.ai-conversation::-webkit-scrollbar { width: 3px; }
+.ai-conversation::-webkit-scrollbar-thumb { background: var(--navy-light); border-radius: 3px; }
+
+.msg { display: flex; gap: 10px; animation: fadeUp 0.3s ease both; }
+.msg.user { flex-direction: row-reverse; }
+.msg-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.msg.ai .msg-avatar { background: rgba(232,164,74,0.15); }
+.msg.user .msg-avatar { background: var(--navy-light); }
+.msg-bubble { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.65; max-width: 85%; }
+.msg.ai .msg-bubble { background: var(--glass); border: 1px solid var(--border); border-top-left-radius: 4px; }
+.msg.user .msg-bubble { background: rgba(232,164,74,0.1); border: 1px solid rgba(232,164,74,0.18); border-top-right-radius: 4px; }
+
+.typing-indicator { display: flex; gap: 4px; padding: 12px 16px; background: var(--glass); border: 1px solid var(--border); border-radius: 16px; border-top-left-radius: 4px; width: fit-content; }
+.typing-dot { width: 5px; height: 5px; background: var(--muted); border-radius: 50%; animation: bounce 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
+
+.input-row { display: flex; gap: 10px; }
+.input-row textarea { flex: 1; min-height: 48px; max-height: 100px; padding: 12px 16px; }
+.send-btn { background: var(--amber); border: none; border-radius: 14px; width: 48px; height: 48px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; color: var(--navy); }
+.send-btn:hover { background: var(--amber-light); transform: scale(1.05); }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.summary-box { background: rgba(232,164,74,0.05); border: 1px solid rgba(232,164,74,0.18); border-radius: 18px; padding: 24px; margin-bottom: 20px; }
+.summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--amber); margin-bottom: 10px; }
+.summary-text { font-family: 'Cormorant Garamond', serif; font-size: 19px; font-weight: 400; line-height: 1.6; font-style: italic; }
+
+.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--cream-dim); padding: 12px 24px; border-radius: 100px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 14px; transition: all 0.2s; margin-right: 10px; }
+.btn-secondary:hover { border-color: var(--muted); color: var(--cream); }
+
+.progress-bar { width: 100%; max-width: 600px; height: 2px; background: var(--border); border-radius: 2px; margin-bottom: 28px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--amber); border-radius: 2px; transition: width 0.5s ease; }
+.step-indicator { font-size: 12px; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.06em; }
+
+.history-list { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 10px; margin-top: 20px; max-height: 420px; overflow-y: auto; }
+.history-item { background: var(--glass); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; transition: all 0.2s; }
+.history-item:hover { border-color: rgba(232,164,74,0.3); }
+.history-decision { font-size: 14px; color: var(--cream); margin-bottom: 5px; }
+.history-meta { font-size: 12px; color: var(--muted); display: flex; gap: 10px; }
+.history-badge { background: rgba(232,164,74,0.1); color: var(--amber); font-size: 11px; padding: 3px 10px; border-radius: 100px; border: 1px solid rgba(232,164,74,0.18); white-space: nowrap; }
+
+.provider-tag { font-size: 10px; color: var(--muted); text-align: right; margin-top: 6px; opacity: 0.6; }
+
+.error-msg { background: var(--error); border: 1px solid rgba(255,80,80,0.2); color: var(--error-text); padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-top: 10px; }
+
+.text-center { text-align: center; }
+.mt-12 { margin-top: 12px; }
+.mt-20 { margin-top: 20px; }
+
+.app-toast {
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(60px);
+  background: #142236; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; padding: 10px 20px; font-size: 13px;
+  color: var(--cream); z-index: 200; transition: transform 0.3s ease;
+  white-space: nowrap; pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.app-toast.show { transform: translateX(-50%) translateY(0); }
+.app-toast.success { color: #4ae89a; border-color: rgba(74,232,154,0.3); }
+
+/* ── RESPONSIVE ──────────────────────────────────────────── */
+@media (max-width: 600px) {
+  header { padding: 12px 16px; }
+  .card { padding: 20px 16px; }
+  .emotion-grid { grid-template-columns: repeat(2, 1fr); }
+  .framework-list .framework-desc { display: none; }
+  .nav-links { display: none; }
+  #notif-btn { display: flex !important; }
+  .user-pill span { display: none; }
+  .sign-out-btn { display: none; }
+  .ai-conversation { max-height: 240px; }
+  #mobile-nav { display: flex !important; }
+}
+
+@media (min-width: 601px) {
+  #mobile-nav { display: none !important; }
+  #mobile-menu-overlay { display: none !important; }
+}
+
+/* Mobile bottom nav */
+#mobile-nav {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 80;
+  background: rgba(13,27,42,0.97);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  justify-content: space-around;
+  align-items: center;
+}
+
+.mob-nav-btn {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-family: 'DM Sans', sans-serif;
+  padding: 6px 12px; border-radius: 10px;
+  transition: all 0.2s; min-width: 56px;
+  text-decoration: none;
+}
+
+.mob-nav-btn .mob-icon { font-size: 20px; line-height: 1; }
+.mob-nav-btn .mob-label { font-size: 10px; letter-spacing: 0.04em; }
+.mob-nav-btn.active, .mob-nav-btn:hover { color: var(--amber); }
+
+/* Add bottom padding on mobile so content isn't hidden behind bottom nav */
+@media (max-width: 600px) {
+  .screen { padding-bottom: 80px; }
+  #main-app { padding-bottom: 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── MAIN APP ───────────────────────────────────────────── -->
+<div id="main-app" style="display:none; flex-direction:column; min-height:100vh;">
+
+  <!-- MOBILE BOTTOM NAV -->
+  <div id="mobile-nav">
+
+  <!-- INSTALL BANNER -->
+  <div id="install-banner" style="display:none; position:fixed; bottom:72px; left:12px; right:12px; z-index:70; background:#142236; border:1px solid rgba(232,164,74,0.3); border-radius:16px; padding:14px 16px; align-items:center; gap:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+    <img src="/icon.png" style="width:40px; height:40px; border-radius:10px; flex-shrink:0">
+    <div style="flex:1">
+      <div style="font-size:13px; font-weight:500; color:var(--cream); margin-bottom:2px">Add Lumen to Home Screen</div>
+      <div style="font-size:11px; color:var(--muted)">Access faster, works offline</div>
+    </div>
+    <button onclick="installApp()" style="background:var(--amber); border:none; border-radius:10px; padding:8px 14px; color:var(--navy); font-size:13px; font-weight:600; cursor:pointer; flex-shrink:0">Install</button>
+    <button onclick="dismissInstall()" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:20px; padding:2px; flex-shrink:0">×</button>
+  </div>
+
+  <!-- TOAST -->
+  <div id="app-toast" class="app-toast"></div>
+    <button class="mob-nav-btn active" id="mob-home" onclick="showScreen('landing')">
+      <span class="mob-icon">🏠</span><span class="mob-label">Home</span>
+    </button>
+    <button class="mob-nav-btn" id="mob-history" onclick="showScreen('history')">
+      <span class="mob-icon">📋</span><span class="mob-label">Decisions</span>
+    </button>
+    <button class="mob-nav-btn" onclick="startFlow()" style="background:var(--amber); border-radius:16px; color:var(--navy); padding:8px 14px;">
+      <span class="mob-icon">✦</span><span class="mob-label" style="color:var(--navy)">Decide</span>
+    </button>
+    <a class="mob-nav-btn" href="dashboard.html">
+      <span class="mob-icon">📊</span><span class="mob-label">Insights</span>
+    </a>
+    <a class="mob-nav-btn" href="profile.html">
+      <span class="mob-icon">👤</span><span class="mob-label">Profile</span>
+    </a>
+  </div>
+
+  <header>
+    <a class="logo" onclick="showScreen('landing')" style="cursor:pointer">Lumen<em>.</em></a>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <nav class="nav-links">
+        <button class="nav-btn active" id="nav-home" onclick="showScreen('landing')">Home</button>
+        <button class="nav-btn" id="nav-history" onclick="showScreen('history')">My Decisions</button>
+        <a href="dashboard.html" class="nav-btn" style="text-decoration:none">Dashboard</a>
+        <a href="profile.html" class="nav-btn" style="text-decoration:none">Profile</a>
+      </nav>
+      <button id="notif-btn" onclick="toggleNotif()" style="position:relative; background:var(--glass); border:1px solid var(--border); border-radius:10px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted); font-size:15px; transition:all 0.2s; flex-shrink:0">
+        🔔<span id="notif-dot" style="display:none; position:absolute; top:5px; right:5px; width:7px; height:7px; background:var(--amber); border-radius:50%; border:2px solid var(--navy)"></span>
+      </button>
+      <div class="user-pill">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <span id="user-name">User</span>
+      </div>
+      <button class="sign-out-btn" onclick="handleSignOut()">Sign out</button>
+    </div>
+  </header>
+
+  <!-- ONBOARDING OVERLAY -->
+  <div id="onboarding-overlay" style="display:none; position:fixed; inset:0; z-index:100; background:rgba(13,27,42,0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center; padding:20px;">
+    <div class="card" style="max-width:500px; text-align:center; padding:48px 36px;">
+      <div style="font-size:48px; margin-bottom:16px">✦</div>
+      <h2 class="card-title" id="ob-title">Welcome to Lumen</h2>
+      <p class="card-sub" id="ob-sub">Your AI thinking partner for life's big decisions.</p>
+      <div id="ob-steps">
+        <div id="ob-step-1">
+          <p style="font-size:15px; color:var(--cream-dim); line-height:1.7; margin-bottom:28px">Lumen isn't a chatbot. It's a structured thinking partner that uses proven frameworks to help you hear your own thinking clearly — without judgment.</p>
+          <button class="btn-primary" style="width:100%" onclick="obNext(2)">Got it →</button>
+        </div>
+        <div id="ob-step-2" style="display:none">
+          <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:28px; text-align:left">
+            ${[['⚖️','Pros & Cons','Map what you gain and what you risk'],['⏳','10/10/10 Rule','See across time — 10min, 10months, 10years'],['🧭','Values Alignment','Check if this fits what truly matters to you'],['🛡️','Worst-Case','Face the fear and ask: could I survive this?']].map(([icon,name,desc])=>`
+            <div style="display:flex; gap:14px; align-items:center; padding:14px; background:var(--glass); border:1px solid var(--border); border-radius:14px;">
+              <span style="font-size:22px">${icon}</span>
+              <div><div style="font-size:14px; font-weight:500; margin-bottom:3px">${name}</div><div style="font-size:12px; color:var(--muted)">${desc}</div></div>
+            </div>`).join('')}
+          </div>
+          <button class="btn-primary" style="width:100%" onclick="obNext(3)">Show me how →</button>
+        </div>
+        <div id="ob-step-3" style="display:none">
+          <p style="font-size:15px; color:var(--cream-dim); line-height:1.7; margin-bottom:28px">Your decisions are saved privately to your account. You can revisit them, track patterns over time, and share summaries with people you trust.</p>
+          <button class="btn-primary" style="width:100%" onclick="obFinish()">Start my first decision →</button>
+        </div>
+      </div>
+      <div id="ob-dots" style="display:flex; justify-content:center; gap:6px; margin-top:20px">
+        <span class="ob-dot active" id="dot-1"></span>
+        <span class="ob-dot" id="dot-2"></span>
+        <span class="ob-dot" id="dot-3"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTIFICATION CENTER -->
+  <div id="notif-panel" style="display:none; position:fixed; top:68px; right:20px; z-index:90; width:320px; background:var(--navy-mid); border:1px solid var(--border); border-radius:18px; overflow:hidden; box-shadow:0 16px 48px rgba(0,0,0,0.4);">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+      <span style="font-size:14px; font-weight:500">Notifications</span>
+      <button onclick="document.getElementById('notif-panel').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">×</button>
+    </div>
+    <div id="notif-list" style="max-height:320px; overflow-y:auto; padding:8px 0"></div>
+  </div>
+
+  <!-- LANDING -->
+  <div class="screen active" id="screen-landing" style="flex:1; justify-content:flex-start; padding-top:40px; max-width:640px; margin:0 auto; width:100%">
+
+    <!-- Greeting + streak -->
+    <div style="width:100%; margin-bottom:28px; animation:fadeUp 0.4s ease both">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h1 style="font-family:'Cormorant Garamond',serif; font-size:clamp(28px,5vw,42px); font-weight:300; line-height:1.1" id="greeting-text">Good morning.</h1>
+          <p style="font-size:14px; color:var(--muted); margin-top:4px">What's on your mind today?</p>
+        </div>
+        <div id="streak-badge" style="display:none; background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:10px 16px; text-align:center">
+          <div style="font-family:'Cormorant Garamond',serif; font-size:24px; color:var(--amber)" id="streak-num">0</div>
+          <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em">day streak</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily thinking prompt -->
+    <div id="daily-prompt" style="width:100%; margin-bottom:24px; background:var(--amber-dim,rgba(232,164,74,0.08)); border:1px solid rgba(232,164,74,0.18); border-radius:16px; padding:18px 20px; animation:fadeUp 0.4s 0.05s ease both; cursor:pointer" onclick="useDailyPrompt()">
+      <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color:var(--amber); margin-bottom:8px">✦ Today's thinking prompt</div>
+      <div style="font-size:15px; color:var(--cream-dim); line-height:1.6; font-style:italic" id="prompt-text">Loading your prompt...</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:8px">Tap to use this prompt →</div>
+    </div>
+
+    <!-- CTA -->
+    <div style="width:100%; animation:fadeUp 0.4s 0.1s ease both">
+      <button class="btn-primary" onclick="startFlow()" style="width:100%; padding:18px; font-size:16px; border-radius:16px; margin-bottom:16px">Begin a Decision →</button>
+    </div>
+
+    <!-- Quick stats if returning user -->
+    <div id="quick-stats" style="display:none; width:100%; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; animation:fadeUp 0.4s 0.15s ease both">
+      <div style="background:var(--glass); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center; cursor:pointer" onclick="showScreen('history')">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:28px; color:var(--amber)" id="qs-total">0</div>
+        <div style="font-size:11px; color:var(--muted)">Decisions</div>
+      </div>
+      <div style="background:var(--glass); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center; cursor:pointer" onclick="window.location.href='dashboard.html'">
+        <div style="font-size:22px" id="qs-emotion">💭</div>
+        <div style="font-size:11px; color:var(--muted)">Top emotion</div>
+      </div>
+      <div style="background:var(--glass); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center; cursor:pointer" onclick="window.location.href='dashboard.html'">
+        <div style="font-size:11px; color:var(--amber); font-weight:500; margin-bottom:4px" id="qs-fw">—</div>
+        <div style="font-size:11px; color:var(--muted)">Fav framework</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- EMOTION -->
+  <div class="screen" id="screen-emotion" style="flex:1">
+    <div class="step-indicator">Step 1 of 4 — Emotion Check-in</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:25%"></div></div>
+    <div class="card">
+      <h2 class="card-title">How are you feeling?</h2>
+      <p class="card-sub">Your emotional state shapes the conversation. No judgment — just honesty.</p>
+      <div class="emotion-grid">
+        <button class="emotion-btn" data-emotion="anxious" onclick="selectEmotion(this)"><span class="emoji">😰</span>Anxious</button>
+        <button class="emotion-btn" data-emotion="confused" onclick="selectEmotion(this)"><span class="emoji">😕</span>Confused</button>
+        <button class="emotion-btn" data-emotion="overwhelmed" onclick="selectEmotion(this)"><span class="emoji">😤</span>Overwhelmed</button>
+        <button class="emotion-btn" data-emotion="excited" onclick="selectEmotion(this)"><span class="emoji">🤩</span>Excited</button>
+        <button class="emotion-btn" data-emotion="scared" onclick="selectEmotion(this)"><span class="emoji">😨</span>Scared</button>
+        <button class="emotion-btn" data-emotion="calm" onclick="selectEmotion(this)"><span class="emoji">😌</span>Calm</button>
+      </div>
+      <button class="btn-primary" onclick="goToDecision()" style="width:100%">Continue →</button>
+    </div>
+  </div>
+
+  <!-- DECISION -->
+  <div class="screen" id="screen-decision" style="flex:1">
+    <div class="step-indicator">Step 2 of 4 — Your Decision</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:50%"></div></div>
+    <div class="card">
+      <h2 class="card-title">What are you deciding?</h2>
+      <p class="card-sub">Write it out in plain language. No structure needed.</p>
+      <div class="input-group">
+        <label class="input-label">I'm deciding whether to...</label>
+        <textarea id="decision-input" rows="4" placeholder="e.g. quit my job and start my own business, even though I have no savings..."></textarea>
+      </div>
+      <div class="input-group">
+        <label class="input-label">What's making this hard? (optional)</label>
+        <textarea id="context-input" rows="3" placeholder="e.g. my family depends on my income, but I feel stuck..."></textarea>
+      </div>
+      <button class="btn-primary" onclick="goToFramework()" style="width:100%">Continue →</button>
+    </div>
+  </div>
+
+  <!-- FRAMEWORK -->
+  <div class="screen" id="screen-framework" style="flex:1">
+    <div class="step-indicator">Step 3 of 4 — Choose Your Lens</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:75%"></div></div>
+    <div class="card">
+      <h2 class="card-title">How do you want to think?</h2>
+      <p class="card-sub">Each framework reveals a different dimension of your decision.</p>
+      <div class="framework-list">
+        <div class="framework-item" data-fw="pros-cons" onclick="selectFramework(this)">
+          <span class="framework-icon">⚖️</span>
+          <div><div class="framework-name">Pros & Cons</div><div class="framework-desc">Weigh benefits against costs. Simple, structured, clarifying.</div></div>
+        </div>
+        <div class="framework-item" data-fw="10-10-10" onclick="selectFramework(this)">
+          <span class="framework-icon">⏳</span>
+          <div><div class="framework-name">10 / 10 / 10 Rule</div><div class="framework-desc">How will you feel in 10 minutes, 10 months, and 10 years?</div></div>
+        </div>
+        <div class="framework-item" data-fw="values" onclick="selectFramework(this)">
+          <span class="framework-icon">🧭</span>
+          <div><div class="framework-name">Values Alignment</div><div class="framework-desc">Does this decision align with what truly matters to you?</div></div>
+        </div>
+        <div class="framework-item" data-fw="worst-case" onclick="selectFramework(this)">
+          <span class="framework-icon">🛡️</span>
+          <div><div class="framework-name">Worst-Case Analysis</div><div class="framework-desc">Define your worst fear — then ask if you could survive it.</div></div>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="goToAI()" style="width:100%">Start Thinking →</button>
+    </div>
+  </div>
+
+  <!-- AI CHAT -->
+  <div class="screen" id="screen-ai" style="flex:1">
+    <div class="step-indicator">Step 4 of 4 — Think It Through</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+    <div class="card" style="max-width:660px">
+      <h2 class="card-title" id="ai-framework-title">Thinking with you...</h2>
+      <p class="card-sub" id="ai-framework-sub">Answer honestly. There's no right answer.</p>
+      <div class="ai-conversation" id="ai-conversation"></div>
+      <div id="ai-error"></div>
+      <div class="input-row">
+        <textarea id="user-reply" rows="2" placeholder="Your thoughts..." onkeydown="handleEnter(event)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <div class="mt-20 text-center">
+        <button class="btn-secondary" onclick="generateSummary()">✨ Get My Clarity Summary</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="screen" id="screen-summary" style="flex:1">
+    <div class="card" style="max-width:600px; width:100%">
+      <div style="text-align:center; margin-bottom:20px">
+        <div style="font-size:44px; margin-bottom:12px">🌟</div>
+        <h2 class="card-title">Your Clarity Summary</h2>
+        <p class="card-sub">Here's what your thinking reveals.</p>
+      </div>
+      <div class="summary-box">
+        <div class="summary-label">Lumen's Reading</div>
+        <div class="summary-text" id="summary-text">Reflecting on your thinking...</div>
+      </div>
+
+      <!-- Rating -->
+      <div style="margin:20px 0; text-align:center">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.08em">Was this helpful?</div>
+        <div style="display:flex; justify-content:center; gap:8px" id="rating-row">
+          <button class="rating-btn" data-val="1" onclick="rateSession(1)">😕 Not really</button>
+          <button class="rating-btn" data-val="2" onclick="rateSession(2)">😐 Somewhat</button>
+          <button class="rating-btn" data-val="3" onclick="rateSession(3)">😊 Very helpful</button>
+        </div>
+      </div>
+
+      <!-- Journal note -->
+      <div class="input-group" id="journal-group" style="margin-top:8px">
+        <label class="input-label">Add a journal note (optional)</label>
+        <textarea id="journal-note" rows="2" placeholder="What are you going to do? How do you feel now?"></textarea>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; justify-content:center">
+        <button class="btn-secondary" onclick="saveDecision()">💾 Save</button>
+        <button class="btn-secondary" id="share-btn" onclick="shareDecision()">🔗 Share</button>
+        <button class="btn-primary" onclick="startFlow()">New Decision →</button>
+      </div>
+
+      <!-- Share link output -->
+      <div id="share-link-box" style="display:none; margin-top:16px; background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:14px 16px;">
+        <div style="font-size:11px; color:var(--muted); margin-bottom:6px">Share this link:</div>
+        <div style="display:flex; gap:8px; align-items:center">
+          <input id="share-link-input" readonly style="flex:1; background:transparent; border:none; color:var(--amber); font-size:13px; outline:none;" value="">
+          <button onclick="copyShareLink()" style="background:var(--amber); border:none; border-radius:8px; padding:6px 12px; color:var(--navy); font-size:12px; font-weight:600; cursor:pointer">Copy</button>
+        </div>
+      </div>
+
+      <p style="font-size:12px; color:var(--muted); text-align:center; margin-top:16px">This is your thinking, reflected back. The decision is always yours.</p>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="screen" id="screen-history" style="flex:1; justify-content:flex-start; padding-top:32px; width:100%; max-width:640px; margin:0 auto;">
+
+    <div style="width:100%; margin-bottom:20px">
+      <h2 class="card-title" style="margin-bottom:4px">My Decisions</h2>
+      <p style="font-size:13px; color:var(--muted)">Your saved decisions and the clarity you found.</p>
+    </div>
+
+    <!-- Search & Filter -->
+    <div style="width:100%; display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap">
+      <input id="history-search" type="text" placeholder="🔍  Search decisions..." oninput="filterHistory()"
+        style="flex:1; min-width:160px; background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:10px 16px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--cream); outline:none;">
+      <select id="history-filter-fw" onchange="filterHistory()"
+        style="background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--muted); outline:none; cursor:pointer">
+        <option value="">All frameworks</option>
+        <option value="pros-cons">Pros & Cons</option>
+        <option value="10-10-10">10/10/10</option>
+        <option value="values">Values</option>
+        <option value="worst-case">Worst-Case</option>
+      </select>
+      <select id="history-filter-em" onchange="filterHistory()"
+        style="background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--muted); outline:none; cursor:pointer">
+        <option value="">All emotions</option>
+        <option value="anxious">😰 Anxious</option>
+        <option value="confused">😕 Confused</option>
+        <option value="overwhelmed">😤 Overwhelmed</option>
+        <option value="excited">🤩 Excited</option>
+        <option value="scared">😨 Scared</option>
+        <option value="calm">😌 Calm</option>
+      </select>
+    </div>
+
+    <div class="history-list" id="history-list" style="width:100%"></div>
+
+    <div style="margin-top:20px; display:flex; gap:10px">
+      <button class="btn-primary" onclick="startFlow()">+ New Decision</button>
+      <a href="dashboard.html" class="btn-secondary" style="text-decoration:none; display:flex; align-items:center">📊 Dashboard</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────
+const state = {
+  emotion: null, decision: '', context: '',
+  framework: null, messages: [], summaryText: ''
+};
+
+const frameworkInfo = {
+  'pros-cons':  { title: 'Weighing Both Sides',   sub: "Let's map what you gain and what you risk." },
+  '10-10-10':   { title: 'Thinking Across Time',  sub: "Your future self has wisdom your present self can't see." },
+  'values':     { title: 'Checking Your Compass', sub: 'What you truly value reveals the path.' },
+  'worst-case': { title: 'Facing the Fear',       sub: 'The worst case is rarely as bad as it feels.' }
+};
+
+// ─── AUTH ─────────────────────────────────────────────────
+async function handleSignOut() {
+  const { signOut } = window._fbFns;
+  await signOut(window._auth);
+  window.location.href = 'login.html';
+}
+
+// ─── NAVIGATION ───────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id)?.classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.mob-nav-btn').forEach(b => b.classList.remove('active'));
+  if (id === 'landing') {
+    document.getElementById('nav-home')?.classList.add('active');
+    document.getElementById('mob-home')?.classList.add('active');
+  }
+  if (id === 'history') {
+    document.getElementById('nav-history')?.classList.add('active');
+    document.getElementById('mob-history')?.classList.add('active');
+    loadCloudHistory(window._currentUser);
+  }
+}
+
+function startFlow() {
+  Object.assign(state, { emotion: null, decision: '', context: '', framework: null, messages: [] });
+  document.querySelectorAll('.emotion-btn, .framework-item').forEach(b => b.classList.remove('selected'));
+  ['decision-input', 'context-input'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  showScreen('emotion');
+}
+
+function selectEmotion(el) {
+  document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected'); state.emotion = el.dataset.emotion;
+}
+
+function goToDecision() {
+  if (!state.emotion) return alert('Please select how you\'re feeling.');
+  showScreen('decision');
+}
+
+function goToFramework() {
+  const dec = document.getElementById('decision-input').value.trim();
+  if (!dec) return alert('Please describe your decision.');
+  state.decision = dec;
+  state.context = document.getElementById('context-input').value.trim();
+  showScreen('framework');
+}
+
+function selectFramework(el) {
+  document.querySelectorAll('.framework-item').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected'); state.framework = el.dataset.fw;
+}
+
+async function goToAI() {
+  if (!state.framework) return alert('Please choose a framework.');
+  showScreen('ai');
+  const info = frameworkInfo[state.framework];
+  document.getElementById('ai-framework-title').textContent = info.title;
+  document.getElementById('ai-framework-sub').textContent = info.sub;
+  document.getElementById('ai-conversation').innerHTML = '';
+  document.getElementById('ai-error').innerHTML = '';
+  state.messages = [];
+  await initAI();
+}
+
+// ─── API ──────────────────────────────────────────────────
+async function callAPI(messages, system) {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, system })
+  });
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'API error'); }
+  const data = await res.json();
+  if (data.provider) document.getElementById('provider-tag')?.remove();
+  return data.text;
+}
+
+function getSystemPrompt() {
+  const guides = {
+    'pros-cons':  'Guide through pros and cons. Benefits first, then risks. One focused question at a time.',
+    '10-10-10':   'Guide through how they\'ll feel in 10 minutes, 10 months, 10 years. One timeframe at a time.',
+    'values':     'Help examine whether this aligns with core values. Ask what matters most, then probe alignment.',
+    'worst-case': 'Help define the worst-case fear, then explore if they could survive and recover. Calm and reassuring.'
+  };
+  return `You are Lumen, a calm, non-judgmental AI thinking partner. Help users think through decisions — NEVER tell them what to decide.
+
+User emotion: ${state.emotion}
+Decision: "${state.decision}"
+Context: "${state.context || 'None'}"
+Framework: ${state.framework}
+
+Guidance: ${guides[state.framework]}
+
+Rules:
+- ONE question at a time. Never ask multiple questions.
+- Warm, curious tone. Reflect back before asking next question.
+- Under 80 words per response.
+- Never advise. You are a mirror, not a guide.`;
+}
+
+async function initAI() {
+  showTyping();
+  try {
+    const text = await callAPI(
+      [{ role: 'user', content: 'Begin with a warm opening and your first question.' }],
+      getSystemPrompt()
+    );
+    hideTyping();
+    addMsg('ai', text);
+    state.messages.push({ role: 'assistant', content: text });
+  } catch (e) {
+    hideTyping();
+    showError('Could not connect. Check your connection and try again.');
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('user-reply');
+  const text = input.value.trim();
+  if (!text) return;
+  addMsg('user', text);
+  state.messages.push({ role: 'user', content: text });
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+  showTyping();
+  try {
+    const reply = await callAPI(state.messages, getSystemPrompt());
+    hideTyping();
+    addMsg('ai', reply);
+    state.messages.push({ role: 'assistant', content: reply });
+  } catch (e) {
+    hideTyping();
+    showError('Something went quiet. Please try again.');
+  }
+  document.getElementById('send-btn').disabled = false;
+}
+
+function handleEnter(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+async function generateSummary() {
+  showScreen('summary');
+  document.getElementById('summary-text').textContent = 'Reflecting on your thinking...';
+  const msgs = [
+    ...state.messages,
+    { role: 'user', content: `Decision: "${state.decision}". Emotion: ${state.emotion}. Framework: ${state.framework}. Write my clarity summary.` }
+  ];
+  const system = `You are Lumen. Write a clarity summary: 2-3 sentences on what their thinking reveals, 1 sentence naming the key tension, 1 empowering closing line. Second person. Under 120 words. Warm and honest.`;
+  try {
+    const summary = await callAPI(msgs, system);
+    state.summaryText = summary;
+    document.getElementById('summary-text').textContent = summary;
+  } catch (e) {
+    document.getElementById('summary-text').textContent = 'Your thinking has been heard. The answer you need is already inside you — trust it.';
+  }
+}
+
+// ─── FIRESTORE ────────────────────────────────────────────
+async function saveDecision() {
+  const user = window._currentUser;
+  if (!user) return alert('Please sign in to save decisions.');
+  const { collection, addDoc, serverTimestamp } = window._fbFns;
+  try {
+    await addDoc(collection(window._db, 'decisions'), {
+      uid: user.uid,
+      decision: state.decision,
+      emotion: state.emotion,
+      framework: state.framework,
+      summary: state.summaryText,
+      createdAt: serverTimestamp()
+    });
+    alert('✅ Saved to My Decisions!');
+  } catch (e) {
+    alert('Could not save. Please try again.');
+  }
+}
+
+async function loadCloudHistory() {
+  const user = window._currentUser;
+  if (!user) return;
+  const { collection, getDocs, query, where, orderBy } = window._fbFns;
+  const list = document.getElementById('history-list');
+  list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:24px;font-size:14px">Loading...</p>';
+  try {
+    const q = query(collection(window._db, 'decisions'), where('uid', '==', user.uid), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    if (snap.empty) {
+      list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:32px;font-size:14px">No decisions saved yet. Start one to build your record.</p>';
+      return;
+    }
+    // Cache for filtering
+    window._allDecisions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderHistoryList(window._allDecisions);
+
+    // Update quick stats
+    updateQuickStats(window._allDecisions);
+  } catch (e) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:24px;font-size:14px">Could not load history. Try refreshing.</p>';
+  }
+}
+
+function renderHistoryList(decisions) {
+  const EM = { anxious:'😰', confused:'😕', overwhelmed:'😤', excited:'🤩', scared:'😨', calm:'😌' };
+  const FW = { 'pros-cons':'Pros & Cons', '10-10-10':'10/10/10', 'values':'Values', 'worst-case':'Worst-Case' };
+  const list = document.getElementById('history-list');
+  if (!decisions.length) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:32px;font-size:14px">No decisions match your search.</p>';
+    return;
+  }
+  list.innerHTML = decisions.map(d => {
+    const date = d.createdAt?.toDate?.()?.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) || 'Recently';
+    const stars = d.rating ? '⭐'.repeat(d.rating === 3 ? 1 : 0) + (d.rating === 3 ? ' Helpful' : d.rating === 2 ? '· Somewhat' : '· Not really') : '';
+    return `<div class="history-item">
+      <div style="flex:1">
+        <div class="history-decision">${d.decision?.substring(0,90)}${(d.decision?.length||0)>90?'...':''}</div>
+        <div class="history-meta">
+          <span>${date}</span>
+          <span>${EM[d.emotion]||''} ${d.emotion||''}</span>
+          ${stars ? `<span style="color:var(--amber); font-size:11px">${stars}</span>` : ''}
+        </div>
+        ${d.summary ? `<div style="font-size:13px;color:var(--muted);margin-top:6px;font-style:italic">${d.summary.substring(0,110)}...</div>` : ''}
+        ${d.journalNote ? `<div style="font-size:12px;color:rgba(232,164,74,0.7);margin-top:5px">📝 ${d.journalNote.substring(0,80)}...</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+        <div class="history-badge">${FW[d.framework]||d.framework||''}</div>
+        ${d.shareId ? `<a href="share.html?id=${d.shareId}" target="_blank" style="font-size:10px;color:var(--amber);text-decoration:none;border:1px solid rgba(232,164,74,0.2);padding:2px 8px;border-radius:100px">🔗 shared</a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterHistory() {
+  const search = document.getElementById('history-search')?.value.toLowerCase() || '';
+  const fw = document.getElementById('history-filter-fw')?.value || '';
+  const em = document.getElementById('history-filter-em')?.value || '';
+  const all = window._allDecisions || [];
+  const filtered = all.filter(d =>
+    (!search || d.decision?.toLowerCase().includes(search) || d.summary?.toLowerCase().includes(search)) &&
+    (!fw || d.framework === fw) &&
+    (!em || d.emotion === em)
+  );
+  renderHistoryList(filtered);
+}
+
+function updateQuickStats(decisions) {
+  const EM = { anxious:'😰', confused:'😕', overwhelmed:'😤', excited:'🤩', scared:'😨', calm:'😌' };
+  const FW = { 'pros-cons':'Pros/Cons', '10-10-10':'10/10/10', 'values':'Values', 'worst-case':'Worst-Case' };
+  const qs = document.getElementById('quick-stats');
+  if (!qs || !decisions.length) return;
+  qs.style.display = 'grid';
+  document.getElementById('qs-total').textContent = decisions.length;
+  const emCount = {};
+  const fwCount = {};
+  decisions.forEach(d => {
+    if (d.emotion) emCount[d.emotion] = (emCount[d.emotion]||0)+1;
+    if (d.framework) fwCount[d.framework] = (fwCount[d.framework]||0)+1;
+  });
+  const topEm = Object.entries(emCount).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const topFw = Object.entries(fwCount).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  if (topEm) document.getElementById('qs-emotion').textContent = EM[topEm] || topEm;
+  if (topFw) document.getElementById('qs-fw').textContent = FW[topFw] || topFw;
+}
+
+// ─── ONBOARDING ───────────────────────────────────────────
+function checkOnboarding() {
+  if (!localStorage.getItem('lumen_onboarded')) {
+    const overlay = document.getElementById('onboarding-overlay');
+    overlay.style.display = 'flex';
+  }
+}
+
+function obNext(step) {
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`ob-step-${i}`).style.display = i === step ? 'block' : 'none';
+    const dot = document.getElementById(`dot-${i}`);
+    dot.classList.toggle('active', i === step);
+  }
+}
+
+function obFinish() {
+  localStorage.setItem('lumen_onboarded', '1');
+  document.getElementById('onboarding-overlay').style.display = 'none';
+  startFlow();
+}
+
+// ─── DAILY PROMPT ─────────────────────────────────────────
+const DAILY_PROMPTS = [
+  "Is there a decision you've been avoiding because it feels too big?",
+  "What would you do if you knew you couldn't fail?",
+  "Is there something you keep saying 'yes' to that you really want to say 'no' to?",
+  "What decision, if made today, would give you the most peace of mind?",
+  "Are you staying somewhere — a job, a relationship, a habit — out of fear or out of choice?",
+  "What would the wisest version of yourself decide right now?",
+  "Is there a conversation you've been putting off that you know needs to happen?",
+  "What are you tolerating that you no longer have to?",
+  "Is the life you're living aligned with the life you want?",
+  "What would you regret more — trying and failing, or never trying at all?"
+];
+
+function loadDailyPrompt() {
+  const idx = new Date().getDate() % DAILY_PROMPTS.length;
+  const el = document.getElementById('prompt-text');
+  if (el) el.textContent = DAILY_PROMPTS[idx];
+}
+
+function useDailyPrompt() {
+  const prompt = document.getElementById('prompt-text')?.textContent || '';
+  showScreen('decision');
+  setTimeout(() => {
+    const input = document.getElementById('decision-input');
+    if (input) { input.value = prompt; input.focus(); }
+  }, 200);
+}
+
+// ─── GREETING ─────────────────────────────────────────────
+function setGreeting(name) {
+  const h = new Date().getHours();
+  const time = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const el = document.getElementById('greeting-text');
+  if (el) el.textContent = `${time}, ${name?.split(' ')[0] || 'there'}.`;
+}
+
+// ─── STREAK ───────────────────────────────────────────────
+function updateStreak(decisions) {
+  const badge = document.getElementById('streak-badge');
+  const num = document.getElementById('streak-num');
+  if (!badge || !decisions?.length) return;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  let streak = 0;
+  const days = new Set(decisions.map(d => {
+    const date = d.createdAt?.toDate?.();
+    if (!date) return null;
+    date.setHours(0,0,0,0);
+    return date.getTime();
+  }).filter(Boolean));
+
+  for (let i = 0; i < 30; i++) {
+    const day = new Date(today); day.setDate(day.getDate() - i);
+    if (days.has(day.getTime())) streak++;
+    else if (i > 0) break;
+  }
+
+  if (streak > 0) { badge.style.display = 'block'; num.textContent = streak; }
+}
+
+// ─── RATING ───────────────────────────────────────────────
+function rateSession(val) {
+  state.rating = val;
+  document.querySelectorAll('.rating-btn').forEach(b => {
+    b.classList.toggle('selected', parseInt(b.dataset.val) === val);
+  });
+}
+
+// ─── SHARE ────────────────────────────────────────────────
+async function shareDecision() {
+  const user = window._currentUser;
+  if (!user) return alert('Please sign in to share.');
+  if (!state.summaryText) return alert('Please generate your clarity summary first.');
+
+  const btn = document.getElementById('share-btn');
+  btn.textContent = '⏳ Creating link...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        decision: state.decision,
+        summary: state.summaryText,
+        framework: state.framework,
+        emotion: state.emotion,
+        uid: user.uid,
+        name: user.displayName || user.email.split('@')[0]
+      })
+    });
+    const data = await res.json();
+    if (data.shareUrl) {
+      state.shareId = data.shareId;
+      state.shareUrl = data.shareUrl;
+      const box = document.getElementById('share-link-box');
+      const input = document.getElementById('share-link-input');
+      box.style.display = 'block';
+      input.value = data.shareUrl;
+      btn.textContent = '✅ Link created';
+    }
+  } catch(e) {
+    btn.textContent = '🔗 Share';
+    alert('Could not create share link. Try again.');
+  }
+  btn.disabled = false;
+}
+
+function copyShareLink() {
+  const input = document.getElementById('share-link-input');
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅'; setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────
+function toggleNotif() {
+  const panel = document.getElementById('notif-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function loadNotifications(decisions) {
+  const list = document.getElementById('notif-list');
+  const dot = document.getElementById('notif-dot');
+  const notifs = [];
+
+  if (!decisions.length) {
+    notifs.push({ icon:'🌱', text:'Welcome! Start your first decision to begin.', time:'Now' });
+  } else {
+    const lastDate = decisions[0]?.createdAt?.toDate?.();
+    const daysSince = lastDate ? Math.floor((Date.now() - lastDate) / 86400000) : null;
+    if (daysSince !== null && daysSince > 7) notifs.push({ icon:'💭', text:`It's been ${daysSince} days since your last decision. Ready to think something through?`, time:`${daysSince}d ago` });
+    if (decisions.length >= 5) notifs.push({ icon:'📊', text:'You have enough decisions to see patterns. Check your dashboard!', time:'Now', link:'dashboard.html' });
+    notifs.push({ icon:'✦', text:'Your thinking grows clearer with every decision you save.', time:'Tip' });
+  }
+
+  if (notifs.length) { dot.style.display = 'block'; }
+
+  list.innerHTML = notifs.map(n => `
+    <div onclick="${n.link ? `window.location.href='${n.link}'` : ''}" style="padding:14px 20px; border-bottom:1px solid var(--border); cursor:${n.link?'pointer':'default'}; display:flex; gap:12px; align-items:flex-start; transition:background 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+      <span style="font-size:18px; flex-shrink:0">${n.icon}</span>
+      <div>
+        <div style="font-size:13px; color:var(--cream-dim); line-height:1.5; margin-bottom:3px">${n.text}</div>
+        <div style="font-size:11px; color:var(--muted)">${n.time}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── SAVE DECISION (UPGRADED) ─────────────────────────────
+async function saveDecision() {
+  const user = window._currentUser;
+  if (!user) return alert('Please sign in to save decisions.');
+  const { collection, addDoc, serverTimestamp } = window._fbFns;
+  try {
+    const doc = await addDoc(collection(window._db, 'decisions'), {
+      uid: user.uid,
+      decision: state.decision,
+      emotion: state.emotion,
+      framework: state.framework,
+      summary: state.summaryText,
+      rating: state.rating || null,
+      journalNote: document.getElementById('journal-note')?.value.trim() || null,
+      shareId: state.shareId || null,
+      createdAt: serverTimestamp()
+    });
+    addNotification('✅', 'Decision saved to your account.');
+    await loadCloudHistory(user);
+    updateStreak(window._allDecisions || []);
+  } catch (e) {
+    alert('Could not save. Please try again.');
+  }
+}
+
+function addNotification(icon, text) {
+  const list = document.getElementById('notif-list');
+  const dot = document.getElementById('notif-dot');
+  if (!list) return;
+  const item = document.createElement('div');
+  item.style.cssText = 'padding:14px 20px; border-bottom:1px solid var(--border); display:flex; gap:12px; align-items:flex-start;';
+  item.innerHTML = `<span style="font-size:18px">${icon}</span><div><div style="font-size:13px;color:var(--cream-dim);line-height:1.5">${text}</div><div style="font-size:11px;color:var(--muted)">Just now</div></div>`;
+  list.prepend(item);
+  dot.style.display = 'block';
+}
+
+// ─── SEND WELCOME EMAIL ───────────────────────────────────
+async function sendWelcomeEmail(user) {
+  if (localStorage.getItem('lumen_welcome_sent')) return;
+  try {
+    await fetch('/api/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'welcome', to: user.email, name: user.displayName })
+    });
+    localStorage.setItem('lumen_welcome_sent', '1');
+  } catch(e) { /* silent fail */ }
+}
+
+// ─── SERVICE WORKER + INSTALL PROMPT ─────────────────────
+let deferredInstallPrompt = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW:', e));
+  });
+}
+
+// Capture install prompt
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // Show install banner after 3 seconds if not already installed
+  setTimeout(showInstallBanner, 3000);
+});
+
+function showInstallBanner() {
+  if (!deferredInstallPrompt) return;
+  if (localStorage.getItem('lumen_install_dismissed')) return;
+  const banner = document.getElementById('install-banner');
+  if (banner) banner.style.display = 'flex';
+}
+
+function installApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(result => {
+    if (result.outcome === 'accepted') {
+      document.getElementById('install-banner').style.display = 'none';
+      showToast('✅ Lumen installed!', 'success');
+    }
+    deferredInstallPrompt = null;
+  });
+}
+
+function dismissInstall() {
+  localStorage.setItem('lumen_install_dismissed', '1');
+  document.getElementById('install-banner').style.display = 'none';
+}
+
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('app-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = `app-toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+  const conv = document.getElementById('ai-conversation');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<div class="msg-avatar">${role === 'ai' ? '✦' : '👤'}</div><div class="msg-bubble">${text}</div>`;
+  conv.appendChild(div);
+  conv.scrollTop = conv.scrollHeight;
+}
+
+function showTyping() {
+  const conv = document.getElementById('ai-conversation');
+  const el = document.createElement('div');
+  el.className = 'msg ai'; el.id = 'typing-msg';
+  el.innerHTML = `<div class="msg-avatar">✦</div><div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>`;
+  conv.appendChild(el); conv.scrollTop = conv.scrollHeight;
+}
+
+function hideTyping() { document.getElementById('typing-msg')?.remove(); }
+function showError(msg) { const el = document.getElementById('ai-error'); if (el) el.innerHTML = `<div class="error-msg">${msg}</div>`; }
+</script>
+</body>
+</html>
